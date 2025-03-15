@@ -18,44 +18,34 @@
       };
     };
 
-    wally-nix = {
-      url = "github:techs-sus/wally-nix";
+    wally-nix.url = "github:techs-sus/wally-nix";
+
+    run-in-cloud = {
+      url = "github:techs-sus/run-in-cloud";
       inputs = {
-        nixpkgs.follows = "nixpkgs";
+        flake-utils.follows = "flake-utils";
+        rust-overlay.follows = "rust-overlay";
       };
     };
-
-		run-in-cloud = {
-			url = "github:techs-sus/run-in-cloud";
-			inputs = {
-				nixpkgs.follows = "nixpkgs";
-				flake-utils.follows = "flake-utils";
-				rust-overlay.follows = "rust-overlay";
-			};
-		};
   };
 
-  outputs =
-    {
-      self,
-      nixpkgs,
-      rust-overlay,
-      flake-utils,
-      wally-nix,
-			run-in-cloud,
-      ...
-    }@inputs:
+  outputs = {
+    nixpkgs,
+    rust-overlay,
+    flake-utils,
+    wally-nix,
+    run-in-cloud,
+    ...
+  } @ inputs:
     flake-utils.lib.eachDefaultSystem (
-      system:
-      let
-        overlays = [ (import rust-overlay) ];
+      system: let
+        overlays = [(import rust-overlay)];
         pkgs = import nixpkgs {
           inherit system overlays;
         };
         wally = wally-nix.packages.${system}.default;
-				run-in-cloud-pkg = run-in-cloud.packages.${system}.default;
-      in
-      {
+        run-in-cloud-pkg = run-in-cloud.packages.${system}.default;
+      in {
         devShells.default = pkgs.mkShell {
           buildInputs = [
             (pkgs.rust-bin.stable.latest.default.override {
@@ -69,10 +59,10 @@
           packages = [
             pkgs.bun
             pkgs.rojo
-						pkgs.hyperfine
+            pkgs.hyperfine
 
             wally
-						run-in-cloud-pkg # a run-in-roblox replacement
+            run-in-cloud-pkg # a run-in-roblox replacement
           ];
 
           shellHook = "";
