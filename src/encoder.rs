@@ -1,10 +1,9 @@
 use crate::spec::TypeId;
-use std::io::Write;
-
 use rbx_dom_weak::{
-	types::{BinaryString, Variant},
+	types::{BinaryString, Ref, Variant},
 	Instance, WeakDom,
 };
+use std::{collections::HashMap, io::Write};
 
 mod write_string {
 	macro_rules! generate_write_string {
@@ -12,7 +11,7 @@ mod write_string {
 			pub fn $target<T: ::std::io::Write>(
 				mut target: T,
 				string: &str,
-			) -> Result<(), Box<dyn ::std::error::Error>> {
+			) -> Result<(), Box<dyn::std::error::Error>> {
 				let len: $target = TryFrom::try_from(string.len())?;
 				target.write_all(&len.to_le_bytes())?;
 				target.write_all(
@@ -81,7 +80,11 @@ fn write_nullstring<T: Write>(
 	Ok(())
 }
 
-fn write_variant(mut target: &mut Vec<u8>, variant: Variant) {
+fn write_variant(
+	mut target: &mut Vec<u8>,
+	variant: Variant,
+	referent_map: &mut HashMap<Ref, usize>,
+) {
 	match variant {
 		// Attribute + String name -> Variant
 		Variant::Attributes(attributes) => {
@@ -98,7 +101,7 @@ fn write_variant(mut target: &mut Vec<u8>, variant: Variant) {
 			for (attribute_name, attribute_variant) in attributes {
 				write_nullstring(&mut target, &attribute_name)
 					.expect("failed writing attribute name as nullstring");
-				write_variant(target, attribute_variant);
+				write_variant(target, attribute_variant, referent_map);
 			}
 		}
 		Variant::Axes(axes) => {
@@ -234,7 +237,7 @@ fn write_variant(mut target: &mut Vec<u8>, variant: Variant) {
 		}
 		Variant::Content(content) => {
 			// "When exposed to Lua, this is just a string."
-			write_variant(target, Variant::String(content.into_string()));
+			write_variant(target, Variant::String(content.into_string()), referent_map);
 		}
 		Variant::Enum(enumeration) => {
 			// u32 internally
@@ -293,6 +296,7 @@ fn write_variant(mut target: &mut Vec<u8>, variant: Variant) {
 		Variant::Int64(int) => write_variant(
 			target,
 			Variant::Int32(i32::try_from(int).expect("failed truncating int64 to int32")),
+			referent_map,
 		),
 		Variant::MaterialColors(colors) => {
 			let bytes = colors.encode();
@@ -341,7 +345,7 @@ fn write_variant(mut target: &mut Vec<u8>, variant: Variant) {
 					.write_all(&[TypeId::None as u8])
 					.expect("failed writing type id for OptionalCFrame");
 			}
-			Some(cframe) => write_variant(target, Variant::CFrame(cframe)),
+			Some(cframe) => write_variant(target, Variant::CFrame(cframe), referent_map),
 		},
 		Variant::PhysicalProperties(properties) => match properties {
 			rbx_dom_weak::types::PhysicalProperties::Default => {
@@ -411,8 +415,31 @@ fn write_variant(mut target: &mut Vec<u8>, variant: Variant) {
 				.write_all(&[TypeId::Ref as u8])
 				.expect("failed writing type id for Ref (referent)");
 
-			let string = format!("{referent}");
-			write_nullstring(&mut target, &string).expect("failed writing nullstring for Ref");
+			// referents are internally stored as random u128 values
+			// it is safe to assume that >[`u64::MAX`] ref's will never be created or used in one model at
+			// once, therefore, we can map refs to smaller usize id's.
+
+			let id = if let Some(id) = referent_map.get(&referent) {
+				*id
+			} else {
+				let id = referent_map.len() + 1; /* ensure an id of 0 is never reached, as we filter all zeros */
+				referent_map.insert(referent, id);
+				id
+			};
+
+			// incredibly naive + lazy implementation of variable integers
+			let mut bytes: Vec<u8> = id
+				.to_le_bytes()
+				.into_iter()
+				.rev() /* ensure zeros are at front, so we can easily skip them */
+				.skip_while(|&x| x == 0)
+				.collect::<Vec<u8>>();
+			bytes.reverse(); /* fix byte ordering */
+			bytes.push(0); /* null byte */
+
+			target
+				.write_all(&bytes)
+				.expect("failed writing null delimited unsigned integer for Ref");
 		}
 		Variant::Region3(region3) => {
 			target
@@ -465,6 +492,7 @@ fn write_variant(mut target: &mut Vec<u8>, variant: Variant) {
 			write_variant(
 				target,
 				Variant::BinaryString(BinaryString::from(string.data())),
+				referent_map,
 			);
 		}
 		Variant::String(string) => {
@@ -517,7 +545,7 @@ fn write_variant(mut target: &mut Vec<u8>, variant: Variant) {
 		}
 		Variant::UniqueId(id) => {
 			let string = format!("{id}");
-			write_variant(target, Variant::String(string));
+			write_variant(target, Variant::String(string), referent_map);
 		}
 		Variant::Vector2(vector) => {
 			target
@@ -564,13 +592,25 @@ fn write_variant(mut target: &mut Vec<u8>, variant: Variant) {
 	}
 }
 
-pub fn encode_instance(instance: &Instance, weak_dom: &WeakDom) -> Vec<u8> {
+pub fn encode_instance(
+	instance: &Instance,
+	weak_dom: &WeakDom,
+	referent_map: &mut HashMap<Ref, usize>,
+) -> Vec<u8> {
 	let mut buffer = Vec::new();
 
-	write_variant(&mut buffer, Variant::String(instance.name.clone()));
-	write_variant(&mut buffer, Variant::String(instance.class.clone()));
-	write_variant(&mut buffer, Variant::Ref(instance.referent()));
-	write_variant(&mut buffer, Variant::Ref(instance.parent()));
+	write_variant(
+		&mut buffer,
+		Variant::String(instance.name.clone()),
+		referent_map,
+	);
+	write_variant(
+		&mut buffer,
+		Variant::String(instance.class.clone()),
+		referent_map,
+	);
+	write_variant(&mut buffer, Variant::Ref(instance.referent()), referent_map);
+	write_variant(&mut buffer, Variant::Ref(instance.parent()), referent_map);
 
 	// Properties
 	buffer.extend(
@@ -580,7 +620,7 @@ pub fn encode_instance(instance: &Instance, weak_dom: &WeakDom) -> Vec<u8> {
 
 	for (property, value) in &instance.properties {
 		write_nullstring(&mut buffer, property).expect("failed writing property name as nullstring");
-		write_variant(&mut buffer, value.to_owned());
+		write_variant(&mut buffer, value.to_owned(), referent_map);
 	}
 
 	// Children
@@ -589,12 +629,12 @@ pub fn encode_instance(instance: &Instance, weak_dom: &WeakDom) -> Vec<u8> {
 			.get_by_ref(child.to_owned())
 			.expect("referent must exist");
 
-		buffer.extend(encode_instance(child_instance, weak_dom));
+		buffer.extend(encode_instance(child_instance, weak_dom, referent_map));
 	}
 
 	buffer
 }
 
 pub fn encode_dom(weak_dom: &WeakDom) -> Vec<u8> {
-	encode_instance(weak_dom.root(), weak_dom)
+	encode_instance(weak_dom.root(), weak_dom, &mut HashMap::new())
 }
