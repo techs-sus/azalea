@@ -184,7 +184,6 @@ fn main() {
 	};
 
 	let command_type = args.command.command_type();
-	let is_single_file = inputs.len() == 1;
 
 	// ensure single input -> single file, and multiple inputs -> single directory
 	match args.command {
@@ -195,7 +194,8 @@ fn main() {
 			let metadata =
 				std::fs::metadata(&options.output).expect("failed reading metadata of output path");
 
-			inputs.reserve_exact(inputs.len());
+			inputs.reserve_exact(options.inputs.len());
+			let is_single_file = options.inputs.len() == 1;
 
 			if is_single_file {
 				assert!(
@@ -231,6 +231,8 @@ fn main() {
 			std::process::exit(0);
 		}
 	};
+
+	let is_single_file = inputs.len() == 1;
 
 	match command_type {
 		CommandType::Encode {
