@@ -191,22 +191,23 @@ fn main() {
 		Command::Encode { options, .. }
 		| Command::GenerateFullScript { options }
 		| Command::GenerateEmbeddableScript { options } => {
-			let metadata =
-				std::fs::metadata(&options.output).expect("failed reading metadata of output path");
+			let metadata = std::fs::metadata(&options.output);
 
 			inputs.reserve_exact(options.inputs.len());
 			let is_single_file = options.inputs.len() == 1;
 
 			if is_single_file {
-				assert!(
-					metadata.is_file(),
-					"output path is directory, but only a single input was specified"
-				);
+				if let Ok(metadata) = metadata {
+					assert!(
+						metadata.is_file(),
+						"output path is directory, but only a single input was specified"
+					);
+				}
 
 				inputs.push((options.inputs.into_iter().next().unwrap(), options.output));
 			} else {
 				assert!(
-					metadata.is_dir(),
+					metadata.is_ok() && metadata.unwrap().is_dir(),
 					"output path is not a directory, but multiple inputs were passed"
 				);
 
