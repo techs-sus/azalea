@@ -49,5 +49,14 @@ format details:
 
 format efficency when azalea is compressed at zstd level 22:
 
-- react-lua-17-rel.bin.zst = 266kb; react-lua-17-rel.rbxm is 553kb; (we won by 287kb)
-- attributes_and_tags.bin.zst = 26kb; attributes_and_tags.rbxm = 15kb; (we lost by 11kb, probably because roblox can use lz4)
+attributes_and_tags:
+
+- attributes_and_tags.bin.zst: 8181
+- attributes_and_tags.rbxm: 14985
+- result: win!
+
+react-lua-17-rel:
+
+- react-lua-17-rel.bin.zst: 265175
+- react-lua-17-rel.rbxm: 565513
+- result: win!
