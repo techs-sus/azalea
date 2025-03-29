@@ -41,8 +41,6 @@ local TYPE_ID = table.freeze({
 	Vector3int16 = 33,
 	Font = 34,
 })
-
--- thank you rojo developers: https://dom.rojo.space/binary.html#cframe (god bless)
 local CFRAME_ID_LOOKUP_TABLE = table.freeze({
 	[0x02] = CFrame.fromEulerAnglesYXZ(0, 0, 0),
 	[0x03] = CFrame.fromEulerAnglesYXZ(math.rad(90), 0, 0),
@@ -99,7 +97,7 @@ local function decode(payloadBuffer: buffer)
 	local nilParentedInstance = Instance.new("Folder", nil)
 
 	local loc = 0
-	local VARIANT_DECODER: { [number]: () -> any }
+	local VARIANT_DECODER: { [number]: () -> any } = nil
 	local nextVariant
 
 	local function nextNullstring(): string
@@ -366,7 +364,23 @@ local function decode(payloadBuffer: buffer)
 			return Rect.new(minX, minY, maxX, maxY)
 		end,
 		[TYPE_ID.Ref] = function()
-			return nextNullstring()
+			local result = 0
+			local shift = 0
+			local byte
+
+			repeat
+				byte = buffer.readu8(payloadBuffer, loc)
+				loc += 1
+
+				result = bit32.bor(result, bit32.lshift(bit32.band(byte, 0x7F), shift))
+				shift = shift + 7
+
+				if shift >= 32 and byte >= 0x80 then
+					error("leb128 overflow (exceeded 32 bits)")
+				end
+			until bit32.band(byte, 0x80) == 0
+
+			return result
 		end,
 		[TYPE_ID.Region3] = function()
 			-- We cannot test this: there are no properties to test this for.
@@ -528,18 +542,20 @@ local function decode(payloadBuffer: buffer)
 		return assert(VARIANT_DECODER[typeId], "no variant decoder for type id " .. typeId)()
 	end
 
-	local rootReferent: string?
+	type Ref = number
+
+	local rootReferent: Ref?
 	local referentTree: { [string]: Instance } = {}
 
 	-- late properties must be applied after the entire tree is decoded
-	-- index signature: latePropertyMap[ref][propertyName] = propertyValue
-	local latePropertiesMap: { [string]: { [string]: string } } = {}
+	-- index signature: latePropertyMap[referent][propertyName] = propertyValue
+	local latePropertiesMap: { [Ref]: { [string]: string } } = {}
 
 	local function decodeInstance()
 		local name: string = nextVariant({ TYPE_ID.String })
-		local className: string = nextVariant({ TYPE_ID.String })
-		local instanceReferent: string = nextVariant({ TYPE_ID.Ref })
-		local parentReferent: string = nextVariant({ TYPE_ID.Ref, TYPE_ID.None })
+		local className: string = nextNullstring()
+		local instanceReferent: Ref = nextVariant({ TYPE_ID.Ref })
+		local parentReferent: Ref? = nextVariant({ TYPE_ID.Ref, TYPE_ID.None })
 
 		local propertiesLength = buffer.readu16(payloadBuffer, loc)
 		local propertiesMap: { [string]: any } = {}
@@ -548,8 +564,8 @@ local function decode(payloadBuffer: buffer)
 		while propertiesLength > 0 do
 			local propertyName = nextNullstring()
 
-			local isTypeIdReferent = buffer.readu8(payloadBuffer, loc) == TYPE_ID.Ref
-			if isTypeIdReferent then
+			local propertyValueIsReferent = buffer.readu8(payloadBuffer, loc) == TYPE_ID.Ref
+			if propertyValueIsReferent then
 				if not latePropertiesMap[instanceReferent] then
 					latePropertiesMap[instanceReferent] = {}
 				end
@@ -565,7 +581,7 @@ local function decode(payloadBuffer: buffer)
 			propertiesLength -= 1
 		end
 
-		local instance: Instance
+		local instance: Instance = nil
 		if className == "DataModel" then
 			instance = Instance.new("Model")
 		elseif className == "Script" then
@@ -599,13 +615,11 @@ local function decode(payloadBuffer: buffer)
 
 		for propertyName, propertyValue in propertiesMap do
 			-- TODO: add custom handlers
-			local success, error = pcall(function()
+			xpcall(function()
 				instance[propertyName] = propertyValue
+			end, function(error)
+				-- warn(`failed setting property {propertyName} with value {propertyValue}; got error "{error}"`)
 			end)
-
-			if not success then
-				-- warn(`failed setting property {propertyName} with value {propertyValue}; got error {error}`)
-			end
 		end
 
 		if parentReferent ~= nil then
@@ -628,20 +642,19 @@ local function decode(payloadBuffer: buffer)
 			break
 		end
 	end
+
 	assert(rootReferent, "no root referent in hierarchy")
 
 	for referent, propertyMap in latePropertiesMap do
 		-- late property handling (referent handling)
 		for propertyName, propertyValue in propertyMap do
-			local success, error = pcall(function()
+			xpcall(function()
 				referentTree[referent][propertyName] = referentTree[propertyValue]
-			end)
-
-			if not success then
+			end, function(error)
 				warn(
-					`failed setting late property {propertyName} on referent {referent} with value {propertyValue}; got error {error}`
+					`failed setting late property {propertyName} on referent {referent} with value {propertyValue}; got error "{error}"`
 				)
-			end
+			end)
 		end
 	end
 

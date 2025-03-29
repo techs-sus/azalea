@@ -13,14 +13,10 @@ mod write_string {
 				mut target: T,
 				string: &str,
 			) -> ::color_eyre::eyre::Result<()> {
-				let len: $target = TryFrom::try_from(string.len())?;
+				let bytes = string.as_bytes();
+				let len: $target = TryFrom::try_from(bytes.len())?;
 				target.write_all(&len.to_le_bytes())?;
-				target.write_all(
-					&string
-						.chars()
-						.map(|char| (char as u8).to_le_bytes()[0])
-						.collect::<Vec<u8>>(),
-				)?;
+				target.write_all(bytes)?;
 
 				Ok(())
 			}
@@ -265,6 +261,15 @@ fn write_variant(
 				.write_all(&enumeration.to_u32().to_le_bytes())
 				.wrap_err("failed writing bytes for Enum")?;
 		}
+		Variant::EnumItem(enumeration) => {
+			// u32 internally
+			target
+				.write_all(&[TypeId::Enum as u8])
+				.wrap_err("failed writing type id for EnumItem")?;
+			target
+				.write_all(&enumeration.value.to_le_bytes())
+				.wrap_err("failed writing bytes for EnumItem")?;
+		}
 		Variant::Faces(faces) => {
 			target
 				.write_all(&[TypeId::Faces as u8, faces.bits()])
@@ -434,7 +439,8 @@ fn write_variant(
 
 			// referents are internally stored as random u128 values
 			// it is safe to assume that >[`u64::MAX`] ref's will never be created or used in one model at
-			// once, therefore, we can map refs to smaller usize id's.
+			// once, therefore, we can map refs to smaller usize id's. furthermore, roblox cannot handle values
+			// above [`u32::MAX`].
 
 			let id = match referent_map.get(&referent) {
 				Some(&id) => id,
@@ -445,19 +451,12 @@ fn write_variant(
 				}
 			};
 
-			// incredibly naive + lazy implementation of variable integers
-			let mut bytes: Vec<u8> = id
-				.to_le_bytes()
-				.into_iter()
-				.rev() /* ensure zeros are at front, so we can easily skip them */
-				.skip_while(|&x| x == 0)
-				.collect::<Vec<u8>>();
-			bytes.reverse(); /* fix byte ordering */
-			bytes.push(0); /* null byte */
+			leb128::write::unsigned(target, id.try_into()?)
+				.wrap_err("failed writing leb128 unsigned integer for Ref")?;
 
-			target
-				.write_all(&bytes)
-				.wrap_err("failed writing null delimited unsigned integer for Ref")?;
+			// target
+			// 	.write_all(&[0])
+			// 	.wrap_err("failed writing null byte for Ref")?;
 		}
 		Variant::Region3(region3) => {
 			target
@@ -624,12 +623,8 @@ pub fn encode_instance(
 		referent_map,
 	)?;
 
-	buffer
-		.write_all(&[TypeId::String as u8])
-		.wrap_err("failed to write type id for instance class name String")?;
-	write_varstring(&mut buffer, instance.class.as_str())
-		.wrap_err("failed writing varstring for instance class name String")?;
-
+	write_nullstring(&mut buffer, instance.class.as_str())
+		.wrap_err("failed writing nullstring for instance ClassName")?;
 	write_variant(&mut buffer, Variant::Ref(instance.referent()), referent_map)?;
 	write_variant(&mut buffer, Variant::Ref(instance.parent()), referent_map)?;
 

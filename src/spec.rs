@@ -1,7 +1,6 @@
 use base64::{prelude::BASE64_STANDARD, Engine};
 use rbx_dom_weak::{types::Variant, WeakDom};
-
-use crate::encoder;
+use std::collections::HashSet;
 
 // https://veykril.github.io/tlborm/decl-macros/building-blocks/counting.html
 macro_rules! count_tt {
@@ -12,7 +11,7 @@ macro_rules! count_tt {
 macro_rules! define_type_id {
 	($($name:ident = $value:expr,)+) => {
 		#[repr(u8)]
-		#[derive(Copy, Clone, PartialEq, Eq)]
+		#[derive(Copy, Clone, PartialEq, Eq, Hash)]
 		pub enum TypeId {
 			$($name = ($value as u8)),*
 		}
@@ -27,7 +26,7 @@ macro_rules! define_type_id {
 			}
 		}
 
-		fn get_luau_for_type_ids(ids: &[TypeId]) -> String {
+		fn get_luau_for_type_ids<'a>(ids: impl Iterator<Item = &'a TypeId>) -> String {
 			let mut output = String::from("-- @generated\nlocal TYPE_ID = table.freeze({\n");
 
 			for id in ids {
@@ -35,57 +34,36 @@ macro_rules! define_type_id {
 			}
 
 			output.push_str("\n})");
-
 			output
 		}
 
 	};
 }
 
-const fn variant_to_type_id(variant: &Variant) -> TypeId {
-	match variant {
-		Variant::Axes(..) => TypeId::Axes,
-		Variant::BinaryString(..) | Variant::SharedString(..) => TypeId::BinaryString,
-		Variant::Bool(..) => TypeId::Bool,
-		Variant::BrickColor(..) => TypeId::BrickColor,
-		Variant::CFrame(..) => TypeId::CFrame,
-		Variant::Color3(..) => TypeId::Color3,
-		Variant::Color3uint8(..) => TypeId::Color3uint8,
-		Variant::ColorSequence(..) => TypeId::ColorSequence,
-		Variant::Enum(..) => TypeId::Enum,
-		Variant::Faces(..) => TypeId::Faces,
-		Variant::Float32(..) => TypeId::Float32,
-		Variant::Float64(..) => TypeId::Float64,
-		Variant::Int32(..) | Variant::Int64(..) => TypeId::Int32,
-		Variant::NumberRange(..) => TypeId::NumberRange,
-		Variant::NumberSequence(..) => TypeId::NumberSequence,
-		Variant::PhysicalProperties(prop) => match prop {
-			rbx_dom_weak::types::PhysicalProperties::Default => TypeId::DefaultPhysicalProperties,
-			rbx_dom_weak::types::PhysicalProperties::Custom(..) => TypeId::CustomPhysicalProperties,
-		},
-		Variant::Ray(..) => TypeId::Ray,
-		Variant::Rect(..) => TypeId::Rect,
-		Variant::Ref(..) => TypeId::Ref,
-		Variant::Region3(..) => TypeId::Region3,
-		Variant::Region3int16(..) => TypeId::Region3int16,
-		Variant::String(..) | Variant::Content(..) | Variant::UniqueId(..) => TypeId::String,
-		Variant::UDim(..) => TypeId::UDim,
-		Variant::UDim2(..) => TypeId::UDim2,
-		Variant::Vector2(..) => TypeId::Vector2,
-		Variant::Vector2int16(..) => TypeId::Vector2int16,
-		Variant::Vector3(..) => TypeId::Vector3,
-		Variant::Vector3int16(..) => TypeId::Vector3int16,
-		Variant::OptionalCFrame(cframe) => match cframe {
-			Some(..) => TypeId::CFrame,
-			None => TypeId::None,
-		},
-		Variant::Tags(..) => TypeId::Tags,
-		Variant::Attributes(..) => TypeId::Attributes,
-		Variant::Font(..) => TypeId::Font,
-		Variant::MaterialColors(..) => TypeId::MaterialColors,
-		Variant::SecurityCapabilities(..) => TypeId::SecurityCapabilities,
-		_ => todo!(),
-	}
+macro_rules! decode_type_id {
+	($($tid:pat => $lua_body:expr,)+) => {
+
+		const fn get_luau_decode_variant_code(id: TypeId) -> &'static str {
+			match id {
+				$($tid => $lua_body,)*
+			}
+		}
+
+		fn get_luau_variant_decoder_for_ids<'a>(ids: impl Iterator<Item = &'a TypeId>) -> String {
+			let mut output = String::from("-- @generated\nVARIANT_DECODER = table.freeze({\n");
+
+			for id in ids {
+				output.push_str(
+					&format!("[TYPE_ID.{}] = function()\n", type_id_to_name(id))
+				);
+				output.push_str(get_luau_decode_variant_code(*id));
+				output.push_str("\nend,\n");
+			}
+
+			output.push_str("\n})");
+			output
+		}
+	};
 }
 
 define_type_id! {
@@ -123,38 +101,69 @@ define_type_id! {
 	Vector2int16 = 31,
 	Vector3 = 32,
 	Vector3int16 = 33,
-
 	Font = 34,
 }
 
-macro_rules! decode_type_id {
-	($($tid:pat => $lua_body:expr,)+) => {
+fn variant_to_type_id(variant: &Variant) -> Vec<TypeId> {
+	match variant {
+		Variant::Axes(..) => vec![TypeId::Axes],
+		Variant::BinaryString(..) | Variant::SharedString(..) => vec![TypeId::BinaryString],
+		Variant::Bool(..) => vec![TypeId::Bool],
+		Variant::BrickColor(..) => vec![TypeId::BrickColor],
+		Variant::CFrame(..) => vec![TypeId::CFrame],
+		Variant::Color3(..) => vec![TypeId::Color3],
+		Variant::Color3uint8(..) => vec![TypeId::Color3uint8],
+		Variant::ColorSequence(..) => vec![TypeId::ColorSequence],
+		Variant::Enum(..) | Variant::EnumItem(..) => vec![TypeId::Enum],
+		Variant::Faces(..) => vec![TypeId::Faces],
+		Variant::Float32(..) => vec![TypeId::Float32],
+		Variant::Float64(..) => vec![TypeId::Float64],
+		Variant::Int32(..) | Variant::Int64(..) => vec![TypeId::Int32],
+		Variant::NumberRange(..) => vec![TypeId::NumberRange],
+		Variant::NumberSequence(..) => vec![TypeId::NumberSequence],
+		Variant::Ray(..) => vec![TypeId::Ray],
+		Variant::Rect(..) => vec![TypeId::Rect],
+		Variant::Ref(..) => vec![TypeId::Ref],
+		Variant::Region3(..) => vec![TypeId::Region3],
+		Variant::Region3int16(..) => vec![TypeId::Region3int16],
+		Variant::String(..) | Variant::ContentId(..) | Variant::UniqueId(..) => vec![TypeId::String],
+		Variant::UDim(..) => vec![TypeId::UDim],
+		Variant::UDim2(..) => vec![TypeId::UDim2],
+		Variant::Vector2(..) => vec![TypeId::Vector2],
+		Variant::Vector2int16(..) => vec![TypeId::Vector2int16],
+		Variant::Vector3(..) => vec![TypeId::Vector3],
+		Variant::Vector3int16(..) => vec![TypeId::Vector3int16],
+		Variant::Font(..) => vec![TypeId::Font],
+		Variant::MaterialColors(..) => vec![TypeId::MaterialColors],
+		Variant::SecurityCapabilities(..) => vec![TypeId::SecurityCapabilities],
+		Variant::Tags(..) => vec![TypeId::Tags],
 
-		const fn get_luau_decode_variant_code(id: TypeId) -> &'static str {
-			match id {
-				$($tid => $lua_body,)*
-			}
+		Variant::OptionalCFrame(cframe) => vec![match cframe {
+			Some(..) => TypeId::CFrame,
+			None => TypeId::None,
+		}],
+		Variant::Content(content) => vec![match content.value() {
+			rbx_dom_weak::types::ContentType::None => TypeId::None,
+			rbx_dom_weak::types::ContentType::Uri(_) => TypeId::String,
+			rbx_dom_weak::types::ContentType::Object(_) => TypeId::Ref,
+			ty => todo!("ContentType {ty:#?} is not covered"),
+		}],
+		Variant::PhysicalProperties(prop) => vec![match prop {
+			rbx_dom_weak::types::PhysicalProperties::Default => TypeId::DefaultPhysicalProperties,
+			rbx_dom_weak::types::PhysicalProperties::Custom(..) => TypeId::CustomPhysicalProperties,
+		}],
+		Variant::Attributes(attributes) => {
+			let mut tys = vec![TypeId::Attributes];
+			attributes.iter().for_each(|(_, variant)| {
+				tys.extend(variant_to_type_id(variant));
+			});
+
+			tys
 		}
-
-		fn get_luau_variant_decoder_for_ids(ids: &[TypeId]) -> String {
-			let mut output = String::from("-- @generated\nVARIANT_DECODER = table.freeze({\n");
-
-			for id in ids {
-				output.push_str(
-					&format!("[TYPE_ID.{}] = function()\n", type_id_to_name(id))
-				);
-				output.push_str(get_luau_decode_variant_code(*id));
-				output.push_str("\nend,\n");
-			}
-
-			output.push_str("\n})");
-
-			output
-		}
-	};
+		_ => todo!("variant {variant:#?} is not covered"),
+	}
 }
 
-// TODO: Add all TypeId's from encoding/decoder.luau (eventually it will be generated from this file!)
 decode_type_id! {
 	TypeId::String => r#"
 		local varstringMetadata = buffer.readu8(payloadBuffer, loc)
@@ -195,7 +204,23 @@ decode_type_id! {
 		return nil
 	"#,
 	TypeId::Ref => r#"
-		return nextNullstring()
+		local result = 0
+		local shift = 0
+		local byte
+
+		repeat
+			byte = buffer.readu8(payloadBuffer, loc)
+			loc += 1
+
+			result = bit32.bor(result, bit32.lshift(bit32.band(byte, 0x7F), shift))
+			shift = shift + 7
+
+			if shift >= 32 and byte >= 0x80 then
+				error("leb128 overflow (exceeded 32 bits)")
+			end
+		until bit32.band(byte, 0x80) == 0
+
+		return result
 	"#,
 	TypeId::Enum => r#"
 		local enumInternal = buffer.readu32(payloadBuffer, loc)
@@ -553,8 +578,9 @@ decode_type_id! {
 }
 
 const TEMPLATE_LUAU: &str = include_str!("./template.luau");
-const CFRAME_LOOKUP_TABLE: &str = r#"-- thank you rojo developers: https://dom.rojo.space/binary.html#cframe (god bless)
-local CFRAME_ID_LOOKUP_TABLE = table.freeze({
+
+// thank you rojo developers: https://dom.rojo.space/binary.html#cframe (god bless)
+const CFRAME_LOOKUP_TABLE: &str = r"local CFRAME_ID_LOOKUP_TABLE = table.freeze({
 	[0x02] = CFrame.fromEulerAnglesYXZ(0, 0, 0),
 	[0x03] = CFrame.fromEulerAnglesYXZ(math.rad(90), 0, 0),
 	[0x05] = CFrame.fromEulerAnglesYXZ(0, math.rad(180), math.rad(180)),
@@ -580,7 +606,7 @@ local CFRAME_ID_LOOKUP_TABLE = table.freeze({
 	[0x20] = CFrame.fromEulerAnglesYXZ(0, math.rad(90), 0),
 	[0x22] = CFrame.fromEulerAnglesYXZ(math.rad(-90), math.rad(90), 0),
 	[0x23] = CFrame.fromEulerAnglesYXZ(0, math.rad(-90), math.rad(180)),
-})"#;
+})";
 
 const NEW_SCRIPT_SOURCE: &str = r#"local NewScript: (code: string, parent: Instance?) -> Script = NewScript
 	or function(code, parent)
@@ -609,8 +635,8 @@ const NEW_MODULE_SCRIPT_SOURCE: &str = r#"local NewModuleScript: (code: string, 
 		return script
 	end"#;
 
-pub fn generate_with_options(
-	type_ids: &[TypeId],
+pub fn generate_with_options<'a>(
+	type_ids: impl Iterator<Item = &'a TypeId> + Clone,
 	cframe_lookup_required: bool,
 	new_script_required: bool,
 	new_local_script_required: bool,
@@ -630,40 +656,41 @@ pub fn generate_with_options(
 	}
 
 	TEMPLATE_LUAU
-		.replace("--!generate TYPE_ID", &get_luau_for_type_ids(type_ids))
+		.replace("--@generate TypeId", &get_luau_for_type_ids(type_ids.clone()))
 		.replace(
-			"--!generate CFRAME_ID_LOOKUP_TABLE",
-			if cframe_lookup_required { CFRAME_LOOKUP_TABLE } else { "-- cframe lookup table not required" },
+			"--@generate CFrameIdLookupTable",
+			if cframe_lookup_required { CFRAME_LOOKUP_TABLE } else { "-- CFrame lookup table not required" },
 		)
 		.replace(
-			"--!generate NewScript",
+			"--@generate NewScript",
 			if new_script_required { NEW_SCRIPT_SOURCE } else { "-- NewScript not required" },
 		)
 		.replace(
-			"--!generate NewLocalScript",
+			"--@generate NewLocalScript",
 			if new_local_script_required {
 				NEW_LOCAL_SCRIPT_SOURCE}
 				else {"-- NewLocalScript not required"}
 		)
 		.replace(
-			"--!generate NewModuleScript",
+			"--@generate NewModuleScript",
 			if new_module_script_required {
 				NEW_MODULE_SCRIPT_SOURCE
 			} else {"-- NewModuleScript not required"}
 		)
+		.replace("--@generate NilParentedInstance", if new_script_required || new_local_script_required || new_module_script_required { "local nilParentedInstance = Instance.new(\"Folder\", nil)" } else { "" })
 		.replace(
-			"--!generate VARIANT_DECODER",
+			"--@generate VariantDecoder",
 			&get_luau_variant_decoder_for_ids(type_ids),
-		).replace("--!generate SpecializedInstanceCreator", &format!("if className == \"DataModel\" then\ninstance = Instance.new(\"Model\")\n{generated_elseif_clauses}\nelse\ninstance = Instance.new(className)\nend"))
-		.replace("--!generate nilParentedInstance", if new_script_required || new_local_script_required || new_module_script_required { "local nilParentedInstance = Instance.new(\"Folder\", nil)" } else { "" })
+		).replace("--@generate SpecializedInstanceCreator", &format!("if className == \"DataModel\" then\ninstance = Instance.new(\"Model\")\n{generated_elseif_clauses}\nelse\ninstance = Instance.new(className)\nend"))
 }
 
 pub fn generate_full_decoder() -> String {
-	generate_with_options(&ALL_TYPE_IDS, true, true, true, true)
+	generate_with_options(ALL_TYPE_IDS.iter(), true, true, true, true)
 }
 
 pub fn generate_specialized_decoder_for_dom(weak_dom: &WeakDom) -> String {
-	let mut type_ids = Vec::from([TypeId::None, TypeId::String, TypeId::Ref]);
+	// we use a hashset to avoid duplicate TypeId's
+	let mut type_ids: HashSet<TypeId> = HashSet::from([TypeId::None, TypeId::String, TypeId::Ref]);
 
 	let mut new_script_required = false;
 	let mut new_local_script_required = false;
@@ -679,17 +706,14 @@ pub fn generate_specialized_decoder_for_dom(weak_dom: &WeakDom) -> String {
 		}
 
 		for variant in descendant.properties.values() {
-			let type_id = variant_to_type_id(variant);
-			if !type_ids.iter().any(|id| *id == type_id) {
-				type_ids.push(type_id);
-			}
+			type_ids.extend(variant_to_type_id(variant));
 		}
 	}
 
-	let cframe_lookup_required = type_ids.iter().any(|id| *id == TypeId::CFrame);
+	let cframe_lookup_required = type_ids.contains(&TypeId::CFrame);
 
 	generate_with_options(
-		&type_ids,
+		type_ids.iter(),
 		cframe_lookup_required,
 		new_script_required,
 		new_local_script_required,
@@ -720,7 +744,7 @@ fn internal_create_script(weak_dom: &WeakDom) -> String {
 	// embed payload with zstd buffer decoding magic
 	output.push_str("local payloadBuffer: buffer = game:GetService(\"HttpService\"):JSONDecode([[{\"m\":null,\"t\":\"buffer\",\"zbase64\":\"");
 	output.push_str(&BASE64_STANDARD.encode(zstd_compress(
-		&encoder::encode_dom(weak_dom).expect("failed encoding dom"),
+		&crate::encoder::encode_dom(weak_dom).expect("failed encoding dom"),
 	)));
 	output.push_str("\"}]])\n");
 

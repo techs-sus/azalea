@@ -2,10 +2,12 @@
 	"name": "azalea",
 	"scripts": {
 		"generate": "bun run scripts/generate.ts",
+		"generateAndCompareExamples": "bun run scripts/generateAndCompareExamples.ts",
 		"tests": "bun run scripts/runTests.ts",
 		"clean": "bun run scripts/clean.ts"
 	},
 	"dependencies": {
-		"@oneidentity/zstd-js": "^1.0.3"
+		"@oneidentity/zstd-js": "^1.0.3",
+		"chalk": "^5.4.1"
 	}
 }
