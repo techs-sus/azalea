@@ -17,11 +17,17 @@ rbx_binary = "1.0.0"
 rbx_xml = "1.0.0"
 rbx_dom_weak = "3.0.0"
 
-zstd = "0.13.2"
+zstd = "0.13.3"
 base64 = "0.22.1"
 
 darklua = "0.16.0"
 stylua = { version = "2.0.2", features = ["luau"] }
+
+color-eyre = { version = "0.6", default-features = false }
+
+# speed up backtrace generation on debug builds
+[profile.dev.package.backtrace]
+opt-level = 3
 
 # full-moon should be compiled to release optimisations in debug mode due to stack overflows
 [profile.dev.package.full_moon]

@@ -719,7 +719,9 @@ fn internal_create_script(weak_dom: &WeakDom) -> String {
 
 	// embed payload with zstd buffer decoding magic
 	output.push_str("local payloadBuffer: buffer = game:GetService(\"HttpService\"):JSONDecode([[{\"m\":null,\"t\":\"buffer\",\"zbase64\":\"");
-	output.push_str(&BASE64_STANDARD.encode(zstd_compress(&encoder::encode_dom(weak_dom))));
+	output.push_str(&BASE64_STANDARD.encode(zstd_compress(
+		&encoder::encode_dom(weak_dom).expect("failed encoding dom"),
+	)));
 	output.push_str("\"}]])\n");
 
 	// embed decoder

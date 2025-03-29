@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use color_eyre::eyre::{self, bail, ensure, eyre, Context, OptionExt};
 use darklua_core::Resources;
 use encoder::encode_dom;
 use rbx_dom_weak::WeakDom;
@@ -80,21 +81,28 @@ struct Args {
 	command: Command,
 }
 
-#[must_use]
-pub fn read_dom_from_path<T: AsRef<Path>>(path: T) -> WeakDom {
-	let path = std::fs::canonicalize(path.as_ref()).expect("failed canonicalizing path");
-	let file = BufReader::new(File::open(&path).expect("Failed opening path"));
+pub fn read_dom_from_path<T: AsRef<Path>>(path: T) -> eyre::Result<WeakDom> {
+	let path = std::fs::canonicalize(path.as_ref())
+		.with_context(|| format!("failed canonicalizing path {}", path.as_ref().display()))?;
+	let file = BufReader::new(
+		File::open(&path).with_context(|| format!("failed opening path {}", path.display()))?,
+	);
 	let extension = path
 		.extension()
-		.expect("Invalid file")
+		.ok_or_else(|| eyre!("file {} has no extension", path.display()))?
 		.to_str()
-		.expect("Failed &OsStr to &str conversion");
+		.ok_or_else(|| {
+			eyre!(
+				"failed &OsStr to &str conversion for path {}",
+				path.display()
+			)
+		})?;
 
-	match extension {
-		"rbxm" => rbx_binary::from_reader(file).unwrap(),
-		"rbxmx" => rbx_xml::from_reader_default(file).unwrap(),
-		_ => panic!("Invalid file extension"),
-	}
+	Ok(match extension {
+		"rbxm" => rbx_binary::from_reader(file)?,
+		"rbxmx" => rbx_xml::from_reader_default(file)?,
+		_ => bail!("invalid file extension"),
+	})
 }
 
 #[must_use]
@@ -108,18 +116,24 @@ pub fn get_stylua_config() -> stylua_lib::Config {
 	config
 }
 
-pub fn minify_with_darklua(input: PathBuf) {
-	let options = darklua_core::Options::new(&input)
-		.with_output(input)
+pub fn minify_with_darklua(target: PathBuf) -> Result<(), darklua_core::DarkluaError> {
+	let options = darklua_core::Options::new(&target)
+		.with_output(target)
 		.with_generator_override(darklua_core::GeneratorParameters::Dense {
 			column_span: usize::MAX - 16,
 		})
 		.with_configuration(darklua_core::Configuration::default());
 
-	darklua_core::process(&Resources::from_file_system(), options).unwrap();
+	darklua_core::process(&Resources::from_file_system(), options)?;
+	Ok(())
 }
 
-fn write_to_luau_file<T: AsRef<Path>>(output: T, source: String, format: bool, minify: bool) {
+fn write_to_luau_file<T: AsRef<Path>>(
+	output: T,
+	source: String,
+	format: bool,
+	minify: bool,
+) -> eyre::Result<()> {
 	match (format, minify) {
 		(true, false) => {
 			// format
@@ -131,18 +145,23 @@ fn write_to_luau_file<T: AsRef<Path>>(output: T, source: String, format: bool, m
 					None,
 					stylua_lib::OutputVerification::None,
 				)
-				.unwrap(),
+				.context("failed formatting luau source")?,
 			)
-			.unwrap();
+			.context("failed writing formatted luau output")?;
 		}
 		(false, true) => {
 			// minify
-			std::fs::write(output.as_ref(), source).unwrap();
-			minify_with_darklua(output.as_ref().to_path_buf());
+			std::fs::write(output.as_ref(), source).wrap_err("failed writing minified luau output")?;
+			minify_with_darklua(output.as_ref().to_path_buf()).map_err(|e| eyre!(e.to_string()))?;
 		}
-		(true, true) => panic!("formatting and minifying at the same time is not supported"),
-		(false, false) => std::fs::write(output, source).unwrap(),
+		(true, true) => eyre::bail!("formatting and minifying at the same time is not supported"),
+		(false, false) => std::fs::write(&output, source).context(format!(
+			"failed writing luau source file to output path {}",
+			output.as_ref().display()
+		))?,
 	}
+
+	Ok(())
 }
 
 enum CommandType {
@@ -170,7 +189,9 @@ impl Command {
 	}
 }
 
-fn main() {
+fn main() -> eyre::Result<()> {
+	color_eyre::install()?;
+
 	let args = Args::parse_from(wild::args());
 	let (format, minify) = (args.global_options.format, args.global_options.minify);
 
@@ -198,7 +219,7 @@ fn main() {
 
 			if is_single_file {
 				if let Ok(metadata) = metadata {
-					assert!(
+					ensure!(
 						metadata.is_file(),
 						"output path is directory, but only a single input was specified"
 					);
@@ -206,7 +227,7 @@ fn main() {
 
 				inputs.push((options.inputs.into_iter().next().unwrap(), options.output));
 			} else {
-				assert!(
+				ensure!(
 					metadata.is_ok() && metadata.unwrap().is_dir(),
 					"output path is not a directory, but multiple inputs were passed"
 				);
@@ -216,9 +237,9 @@ fn main() {
 						"{}.{file_extension}",
 						input
 							.file_stem()
-							.expect("input doesn't have a file name")
+							.ok_or_eyre("input doesn't have a file name")?
 							.to_str()
-							.expect("input file name is not valid utf-8")
+							.ok_or_eyre("input file name is not valid utf-8")?
 					);
 
 					inputs.push((input, options.output.join(file)));
@@ -228,8 +249,8 @@ fn main() {
 
 		// only one output, exit here
 		Command::GenerateFullDecoder { output } => {
-			write_to_luau_file(output, spec::generate_full_decoder(), format, minify);
-			std::process::exit(0);
+			write_to_luau_file(output, spec::generate_full_decoder(), format, minify)?;
+			return Ok(());
 		}
 	};
 
@@ -240,8 +261,13 @@ fn main() {
 			specialized_decoder,
 		} => {
 			for (input, output) in inputs {
-				let weak_dom = read_dom_from_path(&input);
-				std::fs::write(output, encode_dom(&weak_dom)).unwrap();
+				let weak_dom = read_dom_from_path(&input)?;
+				std::fs::write(
+					&output,
+					encode_dom(&weak_dom)
+						.with_context(|| format!("failed encoding dom for input path {}", input.display()))?,
+				)
+				.with_context(|| format!("failed writing to output path {}", output.display()))?;
 
 				if let Some(ref output) = specialized_decoder {
 					write_to_luau_file(
@@ -252,42 +278,43 @@ fn main() {
 								"{}.decoder.luau",
 								input
 									.file_stem()
-									.expect("input doesn't have a file name")
+									.ok_or_else(|| eyre!("input {} doesn't have a file name", input.display()))?
 									.to_str()
-									.expect("input file name is not valid utf-8")
+									.ok_or_else(|| eyre!("input {} file name is not valid utf-8", input.display()))?
 							);
 							output.join(file)
 						},
 						spec::generate_specialized_decoder_for_dom(&weak_dom),
 						format,
 						minify,
-					);
+					)?;
 				}
 			}
 		}
 
 		CommandType::GenerateFullScript => {
 			for (input, output) in inputs {
-				let weak_dom = read_dom_from_path(&input);
+				let weak_dom = read_dom_from_path(&input)?;
 
 				write_to_luau_file(
 					output,
 					spec::generate_full_script(&weak_dom),
 					format,
 					minify,
-				);
+				)?;
 			}
 		}
 
 		CommandType::GenerateEmbeddableScript => {
 			for (input, output) in inputs {
-				let weak_dom = read_dom_from_path(&input);
+				let weak_dom = read_dom_from_path(&input)?;
+
 				write_to_luau_file(
 					output,
 					spec::generate_embeddable_script(&weak_dom),
 					format,
 					minify,
-				);
+				)?;
 			}
 		}
 
@@ -296,4 +323,6 @@ fn main() {
 			unreachable!()
 		}
 	}
+
+	Ok(())
 }
