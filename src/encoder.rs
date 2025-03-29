@@ -1,6 +1,6 @@
 use crate::spec::TypeId;
 use rbx_dom_weak::{
-	types::{BinaryString, Ref, Variant},
+	types::{BinaryString, ContentType, Ref, Variant},
 	Instance, WeakDom,
 };
 use std::{collections::HashMap, io::Write};
@@ -11,7 +11,7 @@ mod write_string {
 			pub fn $target<T: ::std::io::Write>(
 				mut target: T,
 				string: &str,
-			) -> Result<(), Box<dyn::std::error::Error>> {
+			) -> Result<(), Box<dyn ::std::error::Error>> {
 				let len: $target = TryFrom::try_from(string.len())?;
 				target.write_all(&len.to_le_bytes())?;
 				target.write_all(
@@ -235,9 +235,29 @@ fn write_variant(
 					.expect("failed writing bytes for ColorSequenceKeypoint within ColorSequence");
 			}
 		}
-		Variant::Content(content) => {
+		Variant::ContentId(content) => {
 			// "When exposed to Lua, this is just a string."
 			write_variant(target, Variant::String(content.into_string()), referent_map);
+		}
+		Variant::Content(content) => {
+			match content.value() {
+				ContentType::None => {
+					target
+						.write_all(&[TypeId::None as u8])
+						.expect("failed to write type id for nil Content");
+				}
+				ContentType::Object(referent) => {
+					write_variant(target, Variant::Ref(*referent), referent_map);
+				}
+				ContentType::Uri(string) => {
+					target
+						.write_all(&[TypeId::String as u8])
+						.expect("failed to write type id for uri Content");
+					write_varstring(&mut target, &string)
+						.expect("failed writing varstring for uri Content string");
+				}
+				_ => todo!(),
+			};
 		}
 		Variant::Enum(enumeration) => {
 			// u32 internally
@@ -419,12 +439,13 @@ fn write_variant(
 			// it is safe to assume that >[`u64::MAX`] ref's will never be created or used in one model at
 			// once, therefore, we can map refs to smaller usize id's.
 
-			let id = if let Some(id) = referent_map.get(&referent) {
-				*id
-			} else {
-				let id = referent_map.len() + 1; /* ensure an id of 0 is never reached, as we filter all zeros */
-				referent_map.insert(referent, id);
-				id
+			let id = match referent_map.get(&referent) {
+				Some(&id) => id,
+				None => {
+					let id = referent_map.len() + 1; /* ensure an id of 0 is never reached, as we filter all zeros */
+					referent_map.insert(referent, id);
+					id
+				}
 			};
 
 			// incredibly naive + lazy implementation of variable integers
@@ -604,11 +625,13 @@ pub fn encode_instance(
 		Variant::String(instance.name.clone()),
 		referent_map,
 	);
-	write_variant(
-		&mut buffer,
-		Variant::String(instance.class.clone()),
-		referent_map,
-	);
+
+	buffer
+		.write_all(&[TypeId::String as u8])
+		.expect("failed to write type id for instance class name String");
+	write_varstring(&mut buffer, instance.class.as_str())
+		.expect("failed writing varstring for instance class name String");
+
 	write_variant(&mut buffer, Variant::Ref(instance.referent()), referent_map);
 	write_variant(&mut buffer, Variant::Ref(instance.parent()), referent_map);
 
