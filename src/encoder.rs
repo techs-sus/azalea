@@ -31,7 +31,7 @@ mod write_string {
 }
 
 /// NOTE: This function does not add any sort of type id.
-fn write_varstring<T: Write>(mut target: T, string: &str) -> eyre::Result<()> {
+fn write_varstring(target: &mut impl Write, string: &str) -> eyre::Result<()> {
 	let len = string.len();
 	if len <= u8::MAX.into() {
 		target.write_all(&[1])?;
@@ -58,7 +58,7 @@ fn write_varstring<T: Write>(mut target: T, string: &str) -> eyre::Result<()> {
 	Ok(())
 }
 
-fn write_nullstring<T: Write>(mut target: T, string: &str) -> eyre::Result<()> {
+fn write_nullstring(target: &mut impl Write, string: &str) -> eyre::Result<()> {
 	target.write_all(
 		&string
 			.chars()
@@ -72,7 +72,7 @@ fn write_nullstring<T: Write>(mut target: T, string: &str) -> eyre::Result<()> {
 }
 
 fn write_variant(
-	mut target: &mut Vec<u8>,
+	target: &mut impl Write,
 	variant: Variant,
 	referent_map: &mut HashMap<Ref, usize>,
 ) -> eyre::Result<()> {
@@ -90,7 +90,7 @@ fn write_variant(
 				)
 				.wrap_err("failed writing attributes length")?;
 			for (attribute_name, attribute_variant) in attributes {
-				write_nullstring(&mut target, &attribute_name)
+				write_nullstring(target, &attribute_name)
 					.wrap_err("failed writing attribute name as nullstring")?;
 				write_variant(target, attribute_variant, referent_map).wrap_err_with(|| {
 					format!("failed writing attribute variant for attribute name {attribute_name}")
@@ -129,7 +129,7 @@ fn write_variant(
 			target
 				.write_all(&[TypeId::BrickColor as u8])
 				.wrap_err("failed writing type id for BrickColor")?;
-			write_nullstring(&mut target, &name)
+			write_nullstring(target, &name)
 				.wrap_err("failed writing name for BrickColor as nullstring")?;
 		}
 		Variant::CFrame(cframe) => {
@@ -246,7 +246,7 @@ fn write_variant(
 					target
 						.write_all(&[TypeId::String as u8])
 						.wrap_err("failed to write type id for uri Content")?;
-					write_varstring(&mut target, string)
+					write_varstring(target, string)
 						.wrap_err("failed writing varstring for uri Content string")?;
 				}
 				_ => todo!(),
@@ -296,7 +296,7 @@ fn write_variant(
 				.write_all(&[TypeId::Font as u8])
 				.wrap_err("failed writing type id for Font")?;
 
-			write_nullstring(&mut target, &font.family)
+			write_nullstring(target, &font.family)
 				.wrap_err("failed writing family for Font as nullstring")?;
 
 			target
@@ -515,7 +515,7 @@ fn write_variant(
 			target
 				.write_all(&[TypeId::String as u8])
 				.wrap_err("failed to write type id for String")?;
-			write_varstring(&mut target, &string).wrap_err("failed writing varstring for String")?;
+			write_varstring(target, &string).wrap_err("failed writing varstring for String")?;
 		}
 		Variant::Tags(tags) => {
 			target
@@ -530,7 +530,7 @@ fn write_variant(
 				.wrap_err("failed writing tag length")?;
 
 			for tag in tags.iter() {
-				write_nullstring(&mut target, tag).wrap_err("failed writing tag as nullstring")?;
+				write_nullstring(target, tag).wrap_err("failed writing tag as nullstring")?;
 			}
 		}
 		Variant::UDim(udim) => {
@@ -614,31 +614,25 @@ pub fn encode_instance(
 	instance: &Instance,
 	weak_dom: &WeakDom,
 	referent_map: &mut HashMap<Ref, usize>,
-) -> eyre::Result<Vec<u8>> {
-	let mut buffer = Vec::new();
+	buffer: &mut impl Write,
+) -> eyre::Result<()> {
+	write_variant(buffer, Variant::String(instance.name.clone()), referent_map)?;
 
-	write_variant(
-		&mut buffer,
-		Variant::String(instance.name.clone()),
-		referent_map,
-	)?;
-
-	write_nullstring(&mut buffer, instance.class.as_str())
+	write_nullstring(buffer, instance.class.as_str())
 		.wrap_err("failed writing nullstring for instance ClassName")?;
-	write_variant(&mut buffer, Variant::Ref(instance.referent()), referent_map)?;
-	write_variant(&mut buffer, Variant::Ref(instance.parent()), referent_map)?;
+	write_variant(buffer, Variant::Ref(instance.referent()), referent_map)?;
+	write_variant(buffer, Variant::Ref(instance.parent()), referent_map)?;
 
 	// Properties
-	buffer.extend(
-		(u16::try_from(instance.properties.len())
+	buffer.write_all(
+		&(u16::try_from(instance.properties.len())
 			.wrap_err("failed truncating properties length to u16")?)
 		.to_le_bytes(),
-	);
+	)?;
 
 	for (property, value) in &instance.properties {
-		write_nullstring(&mut buffer, property)
-			.wrap_err("failed writing property name as nullstring")?;
-		write_variant(&mut buffer, value.to_owned(), referent_map)
+		write_nullstring(buffer, property).wrap_err("failed writing property name as nullstring")?;
+		write_variant(buffer, value.to_owned(), referent_map)
 			.wrap_err("failed writing property variant")?;
 	}
 
@@ -648,12 +642,17 @@ pub fn encode_instance(
 			.get_by_ref(child.to_owned())
 			.ok_or_eyre("referent must exist")?;
 
-		buffer.extend(encode_instance(child_instance, weak_dom, referent_map)?);
+		encode_instance(child_instance, weak_dom, referent_map, buffer)?;
 	}
 
-	Ok(buffer)
+	Ok(())
 }
 
-pub fn encode_dom(weak_dom: &WeakDom) -> eyre::Result<Vec<u8>> {
-	encode_instance(weak_dom.root(), weak_dom, &mut HashMap::new())
+pub fn encode_dom_into_writer(weak_dom: &WeakDom, mut writer: impl Write) -> eyre::Result<()> {
+	encode_instance(
+		weak_dom.root(),
+		weak_dom,
+		&mut HashMap::new(),
+		writer.by_ref(),
+	)
 }

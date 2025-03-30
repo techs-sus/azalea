@@ -1,6 +1,6 @@
-use base64::{prelude::BASE64_STANDARD, Engine};
+use base64::{prelude::BASE64_STANDARD, write::EncoderStringWriter};
 use rbx_dom_weak::{types::Variant, WeakDom};
-use std::collections::HashSet;
+use std::{collections::HashSet, io::Cursor};
 
 // https://veykril.github.io/tlborm/decl-macros/building-blocks/counting.html
 macro_rules! count_tt {
@@ -721,31 +721,40 @@ pub fn generate_specialized_decoder_for_dom(weak_dom: &WeakDom) -> String {
 	)
 }
 
-fn zstd_compress(stream: &Vec<u8>) -> Vec<u8> {
-	let mut out_bytes = Vec::new();
-
-	let mut encoder = zstd::Encoder::new(&mut out_bytes, 22).unwrap();
-	encoder.include_checksum(true).unwrap();
-	encoder.include_contentsize(true).unwrap();
-	encoder
-		.set_pledged_src_size(Some(stream.len() as u64))
-		.unwrap();
-
-	std::io::copy(&mut stream.as_slice(), &mut encoder).unwrap();
-
-	encoder.finish().unwrap();
-
-	out_bytes
-}
-
 fn internal_create_script(weak_dom: &WeakDom) -> String {
 	let mut output = String::new();
 
+	let mut heap_memory = Vec::new();
+
+	/*
+		* in a perfect world, we would be able to directly wrap writers around each other as below:
+		* [[azalea encoder] -> [zstd writer] -> [base64 writer]]
+		* all steps above would be perfectly piped
+		*
+		* however, roblox expects the zstd output to have a pledged src size, however
+		* it is impossible to figure out the actual src content size without wasting resources (ram, cpu)
+		*
+		* currently, the chain looks something like this:
+		* [azalea encoder] -> [Vec<u8> (heap)] -> [[zstd writer] -> [base64 writer]]
+		* only the zstd writer can be piped into the base64 writer, which is quite inefficent
+		*/
+
+	crate::encoder::encode_dom_into_writer(weak_dom, &mut heap_memory).expect("failed encoding dom");
+
+	let mut base64_string_writer = EncoderStringWriter::new(&BASE64_STANDARD);
+	let mut zstd_encoder = zstd::Encoder::new(&mut base64_string_writer, 22).unwrap();
+	zstd_encoder.include_checksum(true).unwrap();
+	zstd_encoder.include_contentsize(true).unwrap();
+	zstd_encoder
+		.set_pledged_src_size(Some(heap_memory.len() as u64))
+		.unwrap();
+
+	std::io::copy(&mut Cursor::new(heap_memory), &mut zstd_encoder).unwrap();
+	zstd_encoder.finish().unwrap();
+
 	// embed payload with zstd buffer decoding magic
 	output.push_str("local payloadBuffer: buffer = game:GetService(\"HttpService\"):JSONDecode([[{\"m\":null,\"t\":\"buffer\",\"zbase64\":\"");
-	output.push_str(&BASE64_STANDARD.encode(zstd_compress(
-		&crate::encoder::encode_dom(weak_dom).expect("failed encoding dom"),
-	)));
+	output.push_str(&base64_string_writer.into_inner());
 	output.push_str("\"}]])\n");
 
 	// embed decoder

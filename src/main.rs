@@ -1,8 +1,9 @@
 use clap::{Parser, Subcommand};
 use color_eyre::eyre::{self, bail, ensure, eyre, Context, OptionExt};
 use darklua_core::Resources;
-use encoder::encode_dom;
+use encoder::encode_dom_into_writer;
 use rbx_dom_weak::WeakDom;
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::{fs::File, io::BufReader};
 
@@ -82,11 +83,11 @@ struct Args {
 }
 
 pub fn read_dom_from_path<T: AsRef<Path>>(path: T) -> eyre::Result<WeakDom> {
-	let path = std::fs::canonicalize(path.as_ref())
-		.with_context(|| format!("failed canonicalizing path {}", path.as_ref().display()))?;
+	let path = path.as_ref();
 	let file = BufReader::new(
-		File::open(&path).with_context(|| format!("failed opening path {}", path.display()))?,
+		File::open(path).with_context(|| format!("failed opening path {}", path.display()))?,
 	);
+
 	let extension = path
 		.extension()
 		.ok_or_else(|| eyre!("file {} has no extension", path.display()))?
@@ -262,12 +263,14 @@ fn main() -> eyre::Result<()> {
 		} => {
 			for (input, output) in inputs {
 				let weak_dom = read_dom_from_path(&input)?;
-				std::fs::write(
-					&output,
-					encode_dom(&weak_dom)
-						.with_context(|| format!("failed encoding dom for input path {}", input.display()))?,
-				)
-				.with_context(|| format!("failed writing to output path {}", output.display()))?;
+				let mut output_writer =
+					BufWriter::new(File::create(&output).wrap_err("failed opening output file for writing")?);
+
+				encode_dom_into_writer(&weak_dom, &mut output_writer)
+					.with_context(|| format!("failed encoding dom into output path {}", output.display()))?;
+
+				// "It is critical to call flush before BufWriter<W> is dropped." - BufWriter documentation
+				output_writer.flush()?;
 
 				if let Some(ref output) = specialized_decoder {
 					write_to_luau_file(
