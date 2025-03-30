@@ -11,8 +11,8 @@ const platformBinary =
 await $`cargo build`;
 
 await Promise.all([
-	$`${platformBinary} encode --input examples/*.rbxm --output examples`.quiet(),
-	$`${platformBinary} generate-embeddable-script --input examples/*.rbxm --output examples --format`.quiet(),
+	$`${platformBinary} encode --input examples/*.rbxm --output examples`,
+	$`${platformBinary} generate-embeddable-script --input examples/*.rbxm --output examples --format`,
 ]);
 
 function formatBytes(bytes: number, decimals = 2) {

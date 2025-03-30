@@ -2,7 +2,7 @@
 	"name": "azalea",
 	"scripts": {
 		"generate": "bun run scripts/generate.ts",
-		"generateAndCompareExamples": "bun run scripts/generateAndCompareExamples.ts",
+		"compareExamples": "bun run scripts/compareExamples.ts",
 		"tests": "bun run scripts/runTests.ts",
 		"clean": "bun run scripts/clean.ts"
 	},
