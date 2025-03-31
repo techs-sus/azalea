@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use color_eyre::eyre::{self, bail, ensure, eyre, Context, OptionExt};
+use color_eyre::eyre::{self, bail, ensure, eyre, Context};
 use darklua_core::Resources;
 use encoder::encode_dom_into_writer;
 use rbx_dom_weak::WeakDom;
@@ -7,6 +7,7 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::{fs::File, io::BufReader};
 
+mod base122;
 mod encoder;
 mod spec;
 
@@ -155,7 +156,7 @@ fn write_to_luau_file<T: AsRef<Path>>(
 			std::fs::write(output.as_ref(), source).wrap_err("failed writing minified luau output")?;
 			minify_with_darklua(output.as_ref().to_path_buf()).map_err(|e| eyre!(e.to_string()))?;
 		}
-		(true, true) => eyre::bail!("formatting and minifying at the same time is not supported"),
+		(true, true) => bail!("formatting and minifying at the same time is not supported"),
 		(false, false) => std::fs::write(&output, source).context(format!(
 			"failed writing luau source file to output path {}",
 			output.as_ref().display()
@@ -238,9 +239,9 @@ fn main() -> eyre::Result<()> {
 						"{}.{file_extension}",
 						input
 							.file_stem()
-							.ok_or_eyre("input doesn't have a file name")?
+							.ok_or_else(|| eyre!("input {} doesn't have a file name", input.display()))?
 							.to_str()
-							.ok_or_eyre("input file name is not valid utf-8")?
+							.ok_or_else(|| eyre!("input {} has a invalid utf-8 file name", input.display()))?
 					);
 
 					inputs.push((input, options.output.join(file)));

@@ -49,8 +49,8 @@ fn write_varstring(target: &mut impl Write, string: &str) -> eyre::Result<()> {
 		target.write_all(&[16])?;
 		write_string::u128(target, string)?;
 	} else {
-		unimplemented!(
-			"varstring lengths over {} (u128::MAX) are not implemented",
+		eyre::bail!(
+			"varstring lengths over {} (u128::MAX) are not support",
 			u128::MAX
 		)
 	}
@@ -59,14 +59,12 @@ fn write_varstring(target: &mut impl Write, string: &str) -> eyre::Result<()> {
 }
 
 fn write_nullstring(target: &mut impl Write, string: &str) -> eyre::Result<()> {
-	target.write_all(
-		&string
-			.chars()
-			.map(|c| (c as u8).to_le_bytes()[0])
-			.collect::<Vec<u8>>(),
-	)?;
-
-	target.write_all(&[0])?;
+	target
+		.write_all(string.as_bytes())
+		.wrap_err("failed writing string contents for nullstring")?;
+	target
+		.write_all(&[0])
+		.wrap_err("failed writing null byte for nullstring")?;
 
 	Ok(())
 }
@@ -249,7 +247,7 @@ fn write_variant(
 					write_varstring(target, string)
 						.wrap_err("failed writing varstring for uri Content string")?;
 				}
-				_ => todo!(),
+				_ => todo!("ContentType {:#?} is not yet implemented", content.value()),
 			};
 		}
 		Variant::Enum(enumeration) => {

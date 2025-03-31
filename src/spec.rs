@@ -146,7 +146,7 @@ fn variant_to_type_id(variant: &Variant) -> Vec<TypeId> {
 			rbx_dom_weak::types::ContentType::None => TypeId::None,
 			rbx_dom_weak::types::ContentType::Uri(_) => TypeId::String,
 			rbx_dom_weak::types::ContentType::Object(_) => TypeId::Ref,
-			ty => todo!("ContentType {ty:#?} is not covered"),
+			ty => todo!("ContentType {ty:#?} is not yet covered"),
 		}],
 		Variant::PhysicalProperties(prop) => vec![match prop {
 			rbx_dom_weak::types::PhysicalProperties::Default => TypeId::DefaultPhysicalProperties,
@@ -160,7 +160,7 @@ fn variant_to_type_id(variant: &Variant) -> Vec<TypeId> {
 
 			tys
 		}
-		_ => todo!("variant {variant:#?} is not covered"),
+		_ => todo!("Variant {variant:#?} is not yet covered"),
 	}
 }
 
