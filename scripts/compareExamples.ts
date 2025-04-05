@@ -8,11 +8,11 @@ const platformBinary =
 		? "./target/debug/azalea.exe"
 		: "./target/debug/azalea";
 
-await $`cargo build`;
+await $`cargo build --bin azalea --features="base122 cli"`;
 
 await Promise.all([
 	$`${platformBinary} encode --input examples/*.rbxm --output examples`,
-	$`${platformBinary} generate-embeddable-script --input examples/*.rbxm --output examples --format`,
+	$`${platformBinary} generate-embeddable-script --input examples/*.rbxm --output examples`,
 ]);
 
 function formatBytes(bytes: number, decimals = 2) {

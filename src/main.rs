@@ -1,3 +1,4 @@
+use azalea::{encoder, spec};
 use clap::{Parser, Subcommand};
 use color_eyre::eyre::{self, bail, ensure, eyre, Context};
 use darklua_core::Resources;
@@ -6,10 +7,6 @@ use rbx_dom_weak::WeakDom;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::{fs::File, io::BufReader};
-
-mod base122;
-mod encoder;
-mod spec;
 
 #[derive(Subcommand)]
 enum Command {
@@ -83,7 +80,7 @@ struct Args {
 	command: Command,
 }
 
-pub fn read_dom_from_path<T: AsRef<Path>>(path: T) -> eyre::Result<WeakDom> {
+fn read_dom_from_path<T: AsRef<Path>>(path: T) -> eyre::Result<WeakDom> {
 	let path = path.as_ref();
 	let file = BufReader::new(
 		File::open(path).with_context(|| format!("failed opening path {}", path.display()))?,
@@ -108,7 +105,7 @@ pub fn read_dom_from_path<T: AsRef<Path>>(path: T) -> eyre::Result<WeakDom> {
 }
 
 #[must_use]
-pub fn get_stylua_config() -> stylua_lib::Config {
+fn get_stylua_config() -> stylua_lib::Config {
 	let mut config = stylua_lib::Config::new();
 	config.syntax = stylua_lib::LuaVersion::Luau;
 	config.call_parentheses = stylua_lib::CallParenType::Always;
@@ -118,7 +115,7 @@ pub fn get_stylua_config() -> stylua_lib::Config {
 	config
 }
 
-pub fn minify_with_darklua(target: PathBuf) -> Result<(), darklua_core::DarkluaError> {
+fn minify_with_darklua(target: PathBuf) -> Result<(), darklua_core::DarkluaError> {
 	let options = darklua_core::Options::new(&target)
 		.with_output(target)
 		.with_generator_override(darklua_core::GeneratorParameters::Dense {

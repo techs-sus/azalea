@@ -1,3 +1,5 @@
+//! Azalea's encoding logic
+
 use crate::spec::TypeId;
 use color_eyre::eyre::{self, OptionExt, WrapErr};
 use rbx_dom_weak::{
@@ -32,6 +34,7 @@ mod write_string {
 
 /// NOTE: This function does not add any sort of type id.
 fn write_varstring(target: &mut impl Write, string: &str) -> eyre::Result<()> {
+	// TODO: Migrate to ULEB128 here
 	let len = string.len();
 	if len <= u8::MAX.into() {
 		target.write_all(&[1])?;
@@ -50,7 +53,7 @@ fn write_varstring(target: &mut impl Write, string: &str) -> eyre::Result<()> {
 		write_string::u128(target, string)?;
 	} else {
 		eyre::bail!(
-			"varstring lengths over {} (u128::MAX) are not support",
+			"varstring lengths over {} (u128::MAX) are not supported",
 			u128::MAX
 		)
 	}
@@ -608,6 +611,7 @@ fn write_variant(
 	Ok(())
 }
 
+/// Encodes an [`Instance`] alongside it's [`WeakDom`] with a referent map into a writer which implements [`Write`].
 pub fn encode_instance(
 	instance: &Instance,
 	weak_dom: &WeakDom,
@@ -646,6 +650,7 @@ pub fn encode_instance(
 	Ok(())
 }
 
+/// Encodes a [`WeakDom`] into a writer that implements the [`Write`] trait.
 pub fn encode_dom_into_writer(weak_dom: &WeakDom, mut writer: impl Write) -> eyre::Result<()> {
 	encode_instance(
 		weak_dom.root(),

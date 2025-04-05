@@ -13,6 +13,11 @@ rustPlatform.buildRustPackage {
     lockFile = ./Cargo.lock;
   };
 
+	buildFeatures = [
+		"cli"
+		"base122"
+	];
+
   nativeBuildInputs = [ ];
   buildInputs = [ ];
 

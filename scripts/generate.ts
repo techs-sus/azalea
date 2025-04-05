@@ -6,7 +6,7 @@ const platformBinary =
 		? "./target/debug/azalea.exe"
 		: "./target/debug/azalea";
 
-await $`cargo build`;
+await $`cargo build --bin azalea --features="base122 cli"`;
 await Promise.all([
 	ZstdInit(),
 	$`${platformBinary} generate-full-decoder encoding/decoder.luau --format`,

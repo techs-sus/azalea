@@ -7,25 +7,36 @@ license = "Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/techs-sus/azalea"
 
+[features]
+default = ["base122"]
+base122 = []
+cli = ["dep:clap", "dep:wild", "dep:darklua", "dep:stylua"]
+
+[lib]
+name = "azalea"
+
+[[bin]]
+name = "azalea"
+required-features = ["base122", "cli"]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap = { version = "4.5", features = ["derive"] }
-wild = "2"
+clap = { version = "4.5", features = ["derive"], optional = true }
+wild = { version = "2", optional = true }
+
+darklua = { version = "0.16.0", optional = true }
+stylua = { version = "2.0.2", features = ["luau"], optional = true }
+
+color-eyre = { version = "0.6", default-features = false }
 
 rbx_binary = "1.0.0"
 rbx_xml = "1.0.0"
 rbx_dom_weak = "3.0.0"
 
 zstd = "0.13.3"
-base64 = "0.22.1"
 
-darklua = "0.16.0"
-stylua = { version = "2.0.2", features = ["luau"] }
-
-color-eyre = { version = "0.6", default-features = false }
 leb128 = "0.2.5"
-concat-idents = "1.1.5"
 
 # speed up backtrace generation on debug builds
 [profile.dev.package.backtrace]

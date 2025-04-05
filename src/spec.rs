@@ -1,6 +1,7 @@
-use base64::{prelude::BASE64_STANDARD, write::EncoderStringWriter};
+//! Azalea's generated type id's and decoder generator
+
 use rbx_dom_weak::{types::Variant, WeakDom};
-use std::{collections::HashSet, io::Cursor};
+use std::{collections::HashSet, str};
 
 // https://veykril.github.io/tlborm/decl-macros/building-blocks/counting.html
 macro_rules! count_tt {
@@ -577,7 +578,7 @@ decode_type_id! {
 	"#,
 }
 
-const TEMPLATE_LUAU: &str = include_str!("./template.luau");
+const TEMPLATE_LUAU: &str = include_str!("./luau/decoderTemplate.luau");
 
 // thank you rojo developers: https://dom.rojo.space/binary.html#cframe (god bless)
 const CFRAME_LOOKUP_TABLE: &str = r"local CFRAME_ID_LOOKUP_TABLE = table.freeze({
@@ -721,41 +722,48 @@ pub fn generate_specialized_decoder_for_dom(weak_dom: &WeakDom) -> String {
 	)
 }
 
+#[cfg(feature = "base122")]
 fn internal_create_script(weak_dom: &WeakDom) -> String {
 	let mut output = String::new();
-
 	let mut heap_memory = Vec::new();
 
 	/*
 		* in a perfect world, we would be able to directly wrap writers around each other as below:
-		* [[azalea encoder] -> [zstd writer] -> [base64 writer]]
+		* [[azalea encoder] -> [zstd writer] -> [base64/base122 writer]]
 		* all steps above would be perfectly piped
 		*
 		* however, roblox expects the zstd output to have a pledged src size, however
 		* it is impossible to figure out the actual src content size without wasting resources (ram, cpu)
 		*
-		* currently, the chain looks something like this:
-		* [azalea encoder] -> [Vec<u8> (heap)] -> [[zstd writer] -> [base64 writer]]
-		* only the zstd writer can be piped into the base64 writer, which is quite inefficent
+		* currently, the chain would look something like this:
+		* [azalea encoder] -> [Vec<u8> (heap)] -> [[zstd writer] -> [base64/base122 writer]]
+		* however, the base122 writer is pretty unstable and results in corrupted blocks / checksum failures
 		*/
 
 	crate::encoder::encode_dom_into_writer(weak_dom, &mut heap_memory).expect("failed encoding dom");
 
-	let mut base64_string_writer = EncoderStringWriter::new(&BASE64_STANDARD);
-	let mut zstd_encoder = zstd::Encoder::new(&mut base64_string_writer, 22).unwrap();
+	let mut zstd_out = Vec::with_capacity(heap_memory.len() / 2);
+	let mut zstd_encoder = zstd::Encoder::new(&mut zstd_out, 22).unwrap();
 	zstd_encoder.include_checksum(true).unwrap();
 	zstd_encoder.include_contentsize(true).unwrap();
 	zstd_encoder
 		.set_pledged_src_size(Some(heap_memory.len() as u64))
 		.unwrap();
 
-	std::io::copy(&mut Cursor::new(heap_memory), &mut zstd_encoder).unwrap();
+	std::io::copy(&mut std::io::Cursor::new(heap_memory), &mut zstd_encoder).unwrap();
 	zstd_encoder.finish().unwrap();
 
-	// embed payload with zstd buffer decoding magic
-	output.push_str("local payloadBuffer: buffer = game:GetService(\"HttpService\"):JSONDecode([[{\"m\":null,\"t\":\"buffer\",\"zbase64\":\"");
-	output.push_str(&base64_string_writer.into_inner());
-	output.push_str("\"}]])\n");
+	// output.push_str("local payloadBuffer: buffer = game:GetService(\"HttpService\"):JSONDecode([[{\"m\":null,\"t\":\"buffer\",\"zbase64\":\"");
+	// output.push_str(&BASE64_STANDARD.encode(&zstd_out));
+	// output.push_str("\"}]])\n");
+
+	// SAFETY: Base122 encoded data is designed around UTF-8 constraints
+	let base122 = crate::base122::encode(&zstd_out);
+	output.push_str(
+		&include_str!("./luau/minifiedCombinator.luau").replace("%REPLACE_ME%", unsafe {
+			str::from_utf8_unchecked(&base122)
+		}),
+	);
 
 	// embed decoder
 	output.push_str("local decode = (function()\n");
@@ -765,6 +773,7 @@ fn internal_create_script(weak_dom: &WeakDom) -> String {
 	output
 }
 
+#[cfg(feature = "base122")]
 pub fn generate_embeddable_script(weak_dom: &WeakDom) -> String {
 	let mut output = internal_create_script(weak_dom);
 	output.push_str("return decode(payloadBuffer):GetChildren()[1]\n");
@@ -772,6 +781,7 @@ pub fn generate_embeddable_script(weak_dom: &WeakDom) -> String {
 	output
 }
 
+#[cfg(feature = "base122")]
 pub fn generate_full_script(weak_dom: &WeakDom) -> String {
 	// ensure that the generated script will be requiring a ModuleScript
 	{

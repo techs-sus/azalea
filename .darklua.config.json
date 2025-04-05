@@ -1,0 +1,25 @@
+{
+	"generator": "dense",
+	"bundle": {
+		"modules_identifier": "__DARKLUA_BUNDLE_MODULES",
+		"excludes": [],
+		"require_mode": {
+			"name": "path"
+		}
+	},
+	"rules": [
+		"remove_comments",
+		"remove_spaces",
+		"remove_types",
+		{
+			"rule": "rename_variables",
+			"globals": ["$default", "$roblox"]
+		},
+		"remove_method_definition",
+		"remove_nil_declaration",
+		"compute_expression",
+		"remove_unused_if_branch",
+		"filter_after_early_return",
+		"remove_empty_do"
+	]
+}

@@ -68,7 +68,7 @@
           shellHook = "";
         };
 
-        formatter = pkgs.nixfmt-rfc-style;
+        formatter = pkgs.nixfmt-tree;
         packages.default = pkgs.callPackage ./. {
           inherit inputs;
           inherit pkgs;
