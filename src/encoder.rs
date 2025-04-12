@@ -8,63 +8,21 @@ use rbx_dom_weak::{
 };
 use std::{collections::HashMap, io::Write};
 
-mod write_string {
-	macro_rules! generate_write_string {
-		($target:ident) => {
-			pub fn $target<T: ::std::io::Write>(
-				mut target: T,
-				string: &str,
-			) -> ::color_eyre::eyre::Result<()> {
-				let bytes = string.as_bytes();
-				let len: $target = TryFrom::try_from(bytes.len())?;
-				target.write_all(&len.to_le_bytes())?;
-				target.write_all(bytes)?;
-
-				Ok(())
-			}
-		};
-	}
-
-	generate_write_string!(u8);
-	generate_write_string!(u16);
-	generate_write_string!(u32);
-	generate_write_string!(u64);
-	generate_write_string!(u128);
-}
-
 /// NOTE: This function does not add any sort of type id.
-fn write_varstring(target: &mut impl Write, string: &str) -> eyre::Result<()> {
-	// TODO: Migrate to ULEB128 here
-	let len = string.len();
-	if len <= u8::MAX.into() {
-		target.write_all(&[1])?;
-		write_string::u8(target, string)?;
-	} else if len <= u16::MAX.into() {
-		target.write_all(&[2])?;
-		write_string::u16(target, string)?;
-	} else if len <= u32::MAX.try_into()? {
-		target.write_all(&[4])?;
-		write_string::u32(target, string)?;
-	} else if len <= u64::MAX.try_into()? {
-		target.write_all(&[8])?;
-		write_string::u64(target, string)?;
-	} else if (len as u128) <= u128::MAX {
-		target.write_all(&[16])?;
-		write_string::u128(target, string)?;
-	} else {
-		eyre::bail!(
-			"varstring lengths over {} (u128::MAX) are not supported",
-			u128::MAX
-		)
-	}
+fn write_varstring(target: &mut impl Write, string: &[u8]) -> eyre::Result<()> {
+	leb128::write::unsigned(target, string.len().try_into()?)
+		.wrap_err("failed writing variable string length as leb128 encoded unsigned integer")?;
+	target.write_all(string)?;
 
 	Ok(())
 }
 
+/// NOTE: This function does not add any sort of type id.
 fn write_nullstring(target: &mut impl Write, string: &str) -> eyre::Result<()> {
 	target
 		.write_all(string.as_bytes())
 		.wrap_err("failed writing string contents for nullstring")?;
+
 	target
 		.write_all(&[0])
 		.wrap_err("failed writing null byte for nullstring")?;
@@ -83,13 +41,10 @@ fn write_variant(
 			target
 				.write_all(&[TypeId::Attributes as u8])
 				.wrap_err("failed writing type id for Attributes")?;
-			target
-				.write_all(
-					&u16::try_from(attributes.len())
-						.wrap_err("failed truncating attributes length to u16")?
-						.to_le_bytes(),
-				)
-				.wrap_err("failed writing attributes length")?;
+
+			leb128::write::unsigned(target, attributes.len().try_into()?)
+				.wrap_err("failed writing attributes length as leb128 encoded unsigned integer")?;
+
 			for (attribute_name, attribute_variant) in attributes {
 				write_nullstring(target, &attribute_name)
 					.wrap_err("failed writing attribute name as nullstring")?;
@@ -108,17 +63,7 @@ fn write_variant(
 				.write_all(&[TypeId::BinaryString as u8])
 				.wrap_err("failed writing type id for BinaryString")?;
 
-			let vector = binary_string.into_vec();
-			target
-				.write_all(
-					&u32::try_from(vector.len())
-						.wrap_err("failed truncating BinaryString length to u64")?
-						.to_le_bytes(),
-				)
-				.wrap_err("failed writing byte length for BinaryString")?;
-			target
-				.write_all(&vector)
-				.wrap_err("failed writing bytes for BinaryString")?;
+			write_varstring(target, &binary_string.into_vec())?;
 		}
 		Variant::Bool(bool) => {
 			target
@@ -133,6 +78,7 @@ fn write_variant(
 			write_nullstring(target, &name)
 				.wrap_err("failed writing name for BrickColor as nullstring")?;
 		}
+		// https://dom.rojo.space/binary.html
 		Variant::CFrame(cframe) => {
 			target
 				.write_all(&[
@@ -147,7 +93,6 @@ fn write_variant(
 			match cframe.orientation.to_basic_rotation_id() {
 				None => {
 					// write id 0
-					// https://dom.rojo.space/binary.html
 					target
 						.write_all(
 							[
@@ -209,13 +154,8 @@ fn write_variant(
 				.write_all(&[TypeId::ColorSequence as u8])
 				.wrap_err("failed writing type id for ColorSequence")?;
 
-			target
-				.write_all(
-					&u16::try_from(sequence.keypoints.len())
-						.wrap_err("failed truncating ColorSequence length to u16")?
-						.to_le_bytes(),
-				)
-				.wrap_err("failed writing ColorSequence length")?;
+			leb128::write::unsigned(target, sequence.keypoints.len().try_into()?)
+				.wrap_err("failed writing color sequence length as leb128 encoded unsigned integer")?;
 
 			for keypoint in sequence.keypoints {
 				let color = keypoint.color;
@@ -247,7 +187,7 @@ fn write_variant(
 					target
 						.write_all(&[TypeId::String as u8])
 						.wrap_err("failed to write type id for uri Content")?;
-					write_varstring(target, string)
+					write_varstring(target, string.as_bytes())
 						.wrap_err("failed writing varstring for uri Content string")?;
 				}
 				_ => todo!("ContentType {:#?} is not yet implemented", content.value()),
@@ -258,18 +198,18 @@ fn write_variant(
 			target
 				.write_all(&[TypeId::Enum as u8])
 				.wrap_err("failed writing type id for Enum")?;
-			target
-				.write_all(&enumeration.to_u32().to_le_bytes())
-				.wrap_err("failed writing bytes for Enum")?;
+
+			leb128::write::unsigned(target, enumeration.to_u32() as u64)
+				.wrap_err("failed writing Enum as leb128 encoded unsigned integer")?;
 		}
 		Variant::EnumItem(enumeration) => {
 			// u32 internally
 			target
 				.write_all(&[TypeId::Enum as u8])
 				.wrap_err("failed writing type id for EnumItem")?;
-			target
-				.write_all(&enumeration.value.to_le_bytes())
-				.wrap_err("failed writing bytes for EnumItem")?;
+
+			leb128::write::unsigned(target, enumeration.value as u64)
+				.wrap_err("failed writing EnumItem as leb128 encoded unsigned integer")?;
 		}
 		Variant::Faces(faces) => {
 			target
@@ -344,13 +284,8 @@ fn write_variant(
 				.write_all(&[TypeId::NumberSequence as u8])
 				.wrap_err("failed writing type id for NumberSequence")?;
 
-			target
-				.write_all(
-					&u16::try_from(sequence.keypoints.len())
-						.wrap_err("failed truncating number sequence length to u16")?
-						.to_le_bytes(),
-				)
-				.wrap_err("failed writing number sequence length")?;
+			leb128::write::unsigned(target, sequence.keypoints.len().try_into()?)
+				.wrap_err("failed writing number sequence length as leb128 encoded unsigned integer")?;
 
 			for keypoint in sequence.keypoints {
 				target
@@ -516,19 +451,15 @@ fn write_variant(
 			target
 				.write_all(&[TypeId::String as u8])
 				.wrap_err("failed to write type id for String")?;
-			write_varstring(target, &string).wrap_err("failed writing varstring for String")?;
+			write_varstring(target, string.as_bytes()).wrap_err("failed writing varstring for String")?;
 		}
 		Variant::Tags(tags) => {
 			target
 				.write_all(&[TypeId::Tags as u8])
 				.wrap_err("failed to write tag id for Tags")?;
-			target
-				.write_all(
-					&u16::try_from(tags.len())
-						.wrap_err("failed truncating tags length to u16")?
-						.to_le_bytes(),
-				)
-				.wrap_err("failed writing tag length")?;
+
+			leb128::write::unsigned(target, tags.len().try_into()?)
+				.wrap_err("failed writing tags length as leb128 encoded unsigned integer")?;
 
 			for tag in tags.iter() {
 				write_nullstring(target, tag).wrap_err("failed writing tag as nullstring")?;

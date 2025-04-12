@@ -115,42 +115,37 @@ local function decode(payloadBuffer: buffer)
 		return buffer.readstring(payloadBuffer, start, loc - start - 1)
 	end
 
+	local function nextUnsignedInteger(): number
+		local result = 0
+		local shift = 0
+		local byte
+
+		repeat
+			byte = buffer.readu8(payloadBuffer, loc)
+			loc += 1
+
+			result = bit32.bor(result, bit32.lshift(bit32.band(byte, 0x7F), shift))
+			shift = shift + 7
+
+			if shift >= 32 and byte >= 0x80 then
+				error("leb128 overflow (exceeded 32 bits)")
+			end
+		until bit32.band(byte, 0x80) == 0
+
+		return result
+	end
+
 	-- @generated
 	VARIANT_DECODER = table.freeze({
 		[TYPE_ID.String] = function()
-			local varstringMetadata = buffer.readu8(payloadBuffer, loc)
-			loc += 1
-			local stringLength
-
-			if varstringMetadata == 1 then
-				-- u8
-				stringLength = buffer.readu8(payloadBuffer, loc)
-				loc += 1
-			elseif varstringMetadata == 2 then
-				-- u16
-				stringLength = buffer.readu16(payloadBuffer, loc)
-				loc += 2
-			elseif varstringMetadata == 4 then
-				-- u32
-				stringLength = buffer.readu32(payloadBuffer, loc)
-				loc += 4
-			elseif varstringMetadata == 8 then
-				error("u64 varstring is unsupported")
-			elseif varstringMetadata == 16 then
-				error("u128 varstring is unsupported")
-			else
-				error(`varstringMetadata value ({varstringMetadata}) is unsupported`)
-			end
-
+			local stringLength = nextUnsignedInteger()
 			loc += stringLength
-
 			return buffer.readstring(payloadBuffer, loc - stringLength, stringLength)
 		end,
 		[TYPE_ID.Attributes] = function()
-			local attributesLength = buffer.readu16(payloadBuffer, loc)
-			loc += 2
-
+			local attributesLength = nextUnsignedInteger()
 			local attributeMap: { [string]: any } = {}
+
 			while attributesLength > 0 do
 				local attributeName = nextNullstring()
 				attributeMap[attributeName] = nextVariant()
@@ -232,9 +227,7 @@ local function decode(payloadBuffer: buffer)
 			return Color3.fromRGB(r, g, b)
 		end,
 		[TYPE_ID.ColorSequence] = function()
-			local keypointsLength = buffer.readu16(payloadBuffer, loc)
-			loc += 2
-
+			local keypointsLength = nextUnsignedInteger()
 			local keypoints: { ColorSequenceKeypoint } = {}
 
 			while keypointsLength > 0 do
@@ -253,9 +246,7 @@ local function decode(payloadBuffer: buffer)
 			return ColorSequence.new(keypoints)
 		end,
 		[TYPE_ID.Enum] = function()
-			local enumInternal = buffer.readu32(payloadBuffer, loc)
-			loc += 4
-			return enumInternal
+			return nextUnsignedInteger()
 		end,
 		[TYPE_ID.Faces] = function()
 			local byte = buffer.readu8(payloadBuffer, loc)
@@ -302,9 +293,7 @@ local function decode(payloadBuffer: buffer)
 			return NumberRange.new(min, max)
 		end,
 		[TYPE_ID.NumberSequence] = function()
-			local numberSequenceLength = buffer.readu16(payloadBuffer, loc)
-			loc += 2
-
+			local numberSequenceLength = nextUnsignedInteger()
 			local keypoints: { NumberSequenceKeypoint } = {}
 
 			while numberSequenceLength > 0 do
@@ -364,23 +353,7 @@ local function decode(payloadBuffer: buffer)
 			return Rect.new(minX, minY, maxX, maxY)
 		end,
 		[TYPE_ID.Ref] = function()
-			local result = 0
-			local shift = 0
-			local byte
-
-			repeat
-				byte = buffer.readu8(payloadBuffer, loc)
-				loc += 1
-
-				result = bit32.bor(result, bit32.lshift(bit32.band(byte, 0x7F), shift))
-				shift = shift + 7
-
-				if shift >= 32 and byte >= 0x80 then
-					error("leb128 overflow (exceeded 32 bits)")
-				end
-			until bit32.band(byte, 0x80) == 0
-
-			return result
+			return nextUnsignedInteger()
 		end,
 		[TYPE_ID.Region3] = function()
 			-- We cannot test this: there are no properties to test this for.
@@ -414,16 +387,13 @@ local function decode(payloadBuffer: buffer)
 			loc += 8
 		end,
 		[TYPE_ID.BinaryString] = function()
-			local stringLength = buffer.readu32(payloadBuffer, loc)
-			loc += 4 + stringLength
-
+			local stringLength = nextUnsignedInteger()
+			loc += stringLength
 			return buffer.readstring(payloadBuffer, loc - stringLength, stringLength)
 		end,
 		[TYPE_ID.Tags] = function()
 			-- length of encoded array
-			local tagsLength = buffer.readu16(payloadBuffer, loc)
-			loc += 2
-
+			local tagsLength = nextUnsignedInteger()
 			local tags = {}
 
 			while tagsLength > 0 do

@@ -3,10 +3,11 @@
 use rbx_dom_weak::{types::Variant, WeakDom};
 use std::{collections::HashSet, str};
 
-// https://veykril.github.io/tlborm/decl-macros/building-blocks/counting.html
+// <https://veykril.github.io/tlborm/decl-macros/building-blocks/counting.html#bit-twiddling>
 macro_rules! count_tt {
-	() => {0usize};
-	($_head:tt $($tail:tt)*) => {1usize + count_tt!($($tail)*)};
+	() => { 0 };
+	($odd:tt $($a:tt $b:tt)*) => { (count_tt!($($a)*) << 1) | 1 };
+	($($a:tt $even:tt)*) => { count_tt!($($a)*) << 1 };
 }
 
 macro_rules! define_type_id {
@@ -167,66 +168,23 @@ fn variant_to_type_id(variant: &Variant) -> Vec<TypeId> {
 
 decode_type_id! {
 	TypeId::String => r#"
-		local varstringMetadata = buffer.readu8(payloadBuffer, loc)
-		loc += 1
-		local stringLength
-
-		if varstringMetadata == 1 then
-			-- u8
-			stringLength = buffer.readu8(payloadBuffer, loc)
-			loc += 1
-		elseif varstringMetadata == 2 then
-			-- u16
-			stringLength = buffer.readu16(payloadBuffer, loc)
-			loc += 2
-		elseif varstringMetadata == 4 then
-			-- u32
-			stringLength = buffer.readu32(payloadBuffer, loc)
-			loc += 4
-		elseif varstringMetadata == 8 then
-			error("u64 varstring is unsupported")
-		elseif varstringMetadata == 16 then
-			error("u128 varstring is unsupported")
-		else
-			error(`varstringMetadata value ({varstringMetadata}) is unsupported`)
-		end
-
+		local stringLength = nextUnsignedInteger()
 		loc += stringLength
-
 		return buffer.readstring(payloadBuffer, loc - stringLength, stringLength)
 	"#,
 	TypeId::BinaryString => r#"
-		local stringLength = buffer.readu32(payloadBuffer, loc)
-		loc += 4 + stringLength
-
+		local stringLength = nextUnsignedInteger()
+		loc += stringLength
 		return buffer.readstring(payloadBuffer, loc - stringLength, stringLength)
 	"#,
 	TypeId::None => r#"
 		return nil
 	"#,
 	TypeId::Ref => r#"
-		local result = 0
-		local shift = 0
-		local byte
-
-		repeat
-			byte = buffer.readu8(payloadBuffer, loc)
-			loc += 1
-
-			result = bit32.bor(result, bit32.lshift(bit32.band(byte, 0x7F), shift))
-			shift = shift + 7
-
-			if shift >= 32 and byte >= 0x80 then
-				error("leb128 overflow (exceeded 32 bits)")
-			end
-		until bit32.band(byte, 0x80) == 0
-
-		return result
+		return nextUnsignedInteger()
 	"#,
 	TypeId::Enum => r#"
-		local enumInternal = buffer.readu32(payloadBuffer, loc)
-		loc += 4
-		return enumInternal
+		return nextUnsignedInteger()
 	"#,
 	TypeId::Float32 => r#"
 		local float = buffer.readf32(payloadBuffer, loc)
@@ -250,9 +208,7 @@ decode_type_id! {
 	"#,
 	TypeId::Tags => r#"
 		-- length of encoded array
-		local tagsLength = buffer.readu16(payloadBuffer, loc)
-		loc += 2
-
+		local tagsLength = nextUnsignedInteger()
 		local tags = {}
 
 		while tagsLength > 0 do
@@ -265,10 +221,9 @@ decode_type_id! {
 		return tags
 	"#,
 	TypeId::Attributes => r#"
-		local attributesLength = buffer.readu16(payloadBuffer, loc)
-		loc += 2
-
+		local attributesLength = nextUnsignedInteger()
 		local attributeMap: { [string]: any } = {}
+
 		while attributesLength > 0 do
 			local attributeName = nextNullstring()
 			attributeMap[attributeName] = nextVariant()
@@ -504,9 +459,7 @@ decode_type_id! {
 		return Region3int16.new(Vector3int16.new(minX, minY, minZ), Vector3int16.new(maxX, maxY, maxZ))
 	"#,
 	TypeId::NumberSequence => r#"
-		local numberSequenceLength = buffer.readu16(payloadBuffer, loc)
-		loc += 2
-
+		local numberSequenceLength = nextUnsignedInteger()
 		local keypoints: { NumberSequenceKeypoint } = {}
 
 		while numberSequenceLength > 0 do
@@ -541,9 +494,7 @@ decode_type_id! {
 		loc += 69
 	"#,
 	TypeId::ColorSequence => r#"
-		local keypointsLength = buffer.readu16(payloadBuffer, loc)
-		loc += 2
-
+		local keypointsLength = nextUnsignedInteger()
 		local keypoints: { ColorSequenceKeypoint } = {}
 
 		while keypointsLength > 0 do

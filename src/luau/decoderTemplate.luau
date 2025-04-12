@@ -31,6 +31,26 @@ local function decode(payloadBuffer: buffer)
 		return buffer.readstring(payloadBuffer, start, loc - start - 1)
 	end
 
+	local function nextUnsignedInteger(): number
+		local result = 0
+		local shift = 0
+		local byte
+
+		repeat
+			byte = buffer.readu8(payloadBuffer, loc)
+			loc += 1
+
+			result = bit32.bor(result, bit32.lshift(bit32.band(byte, 0x7F), shift))
+			shift = shift + 7
+
+			if shift >= 32 and byte >= 0x80 then
+				error("leb128 overflow (exceeded 32 bits)")
+			end
+		until bit32.band(byte, 0x80) == 0
+
+		return result
+	end
+
 	--@generate VariantDecoder
 
 	function nextVariant(expectedTypeIds: { number }?)
