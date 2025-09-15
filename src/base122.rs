@@ -150,7 +150,7 @@ mod tests {
 	/// generate_test!(&[], vec![], empty_vectors_alike);
 	/// ```
 	macro_rules! generate_test {
-		($original:expr_2021, $encoded:expr_2021, $name:ident) => {
+		($original:expr, $encoded:expr, $name:ident) => {
 			#[test]
 			fn $name() {
 				assert_eq!(encode($original), $encoded);
