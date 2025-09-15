@@ -1,6 +1,6 @@
 use azalea::{encoder, spec};
 use clap::{Parser, Subcommand};
-use color_eyre::eyre::{self, bail, ensure, eyre, Context};
+use color_eyre::eyre::{self, Context, bail, ensure, eyre};
 use darklua_core::Resources;
 use encoder::encode_dom_into_writer;
 use rbx_dom_weak::WeakDom;

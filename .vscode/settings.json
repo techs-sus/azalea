@@ -1,3 +1,4 @@
 {
-  "luau-lsp.sourcemap.rojoProjectFile": "place.project.json"
+	"luau-lsp.sourcemap.rojoProjectFile": "place.project.json",
+	"stylua.targetReleaseVersion": "latest"
 }

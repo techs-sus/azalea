@@ -48,7 +48,8 @@ impl<'data> Base122OriginalEncoder<'data> {
 		if self.current_bit < 8 {
 			// extract the highest (7 - self.current_bit) bits of the first byte, and shift 1 bit to the right
 			// e.g. if self.current_bit == 6, 0b11111111 ---> 0b01100000
-			first_encoded_byte = ((0b11111110 >> self.current_bit) & first_byte) << self.current_bit >> 1;
+			first_encoded_byte =
+				((0b1111_1110 >> self.current_bit) & first_byte) << self.current_bit >> 1;
 		}
 
 		// no need to encode the second byte, return the first byte
@@ -68,7 +69,7 @@ impl<'data> Base122OriginalEncoder<'data> {
 		let second_byte = self.data[self.current_byte];
 		let bits_to_move = 8 - self.current_bit;
 		let second_encoded_byte = if bits_to_move < 8 {
-			(((0b11111111 >> bits_to_move) << bits_to_move) & second_byte) >> bits_to_move
+			(((0b1111_1111 >> bits_to_move) << bits_to_move) & second_byte) >> bits_to_move
 		} else {
 			0
 		};
@@ -103,30 +104,27 @@ impl<'data> Base122OriginalEncoder<'data> {
 				.try_into()
 				.expect("to truncate illegal byte index into u8");
 
-			let mut first_encoded_byte: u8 = 0b11000010;
-			let mut second_encoded_byte: u8 = 0b10000000;
+			let mut first_encoded_byte: u8 = 0b1100_0010;
+			let mut second_encoded_byte: u8 = 0b1000_0000;
 
 			// if the byte hits the illegal bytes, need to encode it
 			// into 2-bytes format together with the next 7-bits byte
-			let mut second_seven_bits_byte = match self.next_7_bits() {
-				Err(Error::EndOfStream) => None,
-				Ok(byte) => Some(byte),
-			};
+			let mut second_seven_bits_byte = self.next_7_bits().ok();
 
 			// hasNextByte
 			if second_seven_bits_byte.is_some() {
-				first_encoded_byte |= (0b00000111 & illegal_byte_index) << 2;
+				first_encoded_byte |= (0b0000_0111 & illegal_byte_index) << 2;
 			} else {
 				first_encoded_byte |= SHORTENED << 2;
 				second_seven_bits_byte = Some(first_seven_bits_byte); // encode the first 7-bits byte into the last byte, since we have no next byte
-			};
+			}
 
 			let second_seven_bits_byte: u8 = second_seven_bits_byte.unwrap();
 
 			// put the first bit into the first byte to encode
-			first_encoded_byte |= (0b01000000 & second_seven_bits_byte) >> 6;
+			first_encoded_byte |= (0b0100_0000 & second_seven_bits_byte) >> 6;
 			// put the rest of the 6 bits into the second byte to encode
-			second_encoded_byte |= 0b00111111 & second_seven_bits_byte;
+			second_encoded_byte |= 0b0011_1111 & second_seven_bits_byte;
 
 			output.push(first_encoded_byte);
 			output.push(second_encoded_byte);
@@ -152,7 +150,7 @@ mod tests {
 	/// generate_test!(&[], vec![], empty_vectors_alike);
 	/// ```
 	macro_rules! generate_test {
-		($original:expr, $encoded:expr, $name:ident) => {
+		($original:expr_2021, $encoded:expr_2021, $name:ident) => {
 			#[test]
 			fn $name() {
 				assert_eq!(encode($original), $encoded);

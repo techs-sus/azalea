@@ -1,6 +1,7 @@
 //! Azalea's generated type id's and decoder generator
 
-use rbx_dom_weak::{types::Variant, WeakDom};
+use rbx_dom_weak::{WeakDom, types::Variant};
+use std::fmt::Write;
 use std::{collections::HashSet, str};
 
 // <https://veykril.github.io/tlborm/decl-macros/building-blocks/counting.html#bit-twiddling>
@@ -32,7 +33,7 @@ macro_rules! define_type_id {
 			let mut output = String::from("-- @generated\nlocal TYPE_ID = table.freeze({\n");
 
 			for id in ids {
-				output.push_str(&format!("{} = {},", type_id_to_name(id), *id as u8));
+				write!(&mut output, "{} = {},", type_id_to_name(id), *id as u8).unwrap();
 			}
 
 			output.push_str("\n})");
@@ -55,11 +56,7 @@ macro_rules! decode_type_id {
 			let mut output = String::from("-- @generated\nVARIANT_DECODER = table.freeze({\n");
 
 			for id in ids {
-				output.push_str(
-					&format!("[TYPE_ID.{}] = function()\n", type_id_to_name(id))
-				);
-				output.push_str(get_luau_decode_variant_code(*id));
-				output.push_str("\nend,\n");
+				write!(&mut output, "[TYPE_ID.{}] = function()\n{}\nend,\n", type_id_to_name(id), get_luau_decode_variant_code(*id)).unwrap();
 			}
 
 			output.push_str("\n})");
@@ -587,23 +584,27 @@ const NEW_MODULE_SCRIPT_SOURCE: &str = r#"local NewModuleScript: (code: string, 
 		return script
 	end"#;
 
+pub struct Requirements {
+	pub cframe_lookup_required: bool,
+	pub new_script_required: bool,
+	pub new_local_script_required: bool,
+	pub new_module_script_required: bool,
+}
+
 pub fn generate_with_options<'a>(
 	type_ids: impl Iterator<Item = &'a TypeId> + Clone,
-	cframe_lookup_required: bool,
-	new_script_required: bool,
-	new_local_script_required: bool,
-	new_module_script_required: bool,
+	requirements: Requirements,
 ) -> String {
 	let mut generated_elseif_clauses = String::new();
-	if new_script_required {
+	if requirements.new_script_required {
 		generated_elseif_clauses.push_str("elseif className == \"Script\" then\ninstance = NewScript(propertiesMap.Source or \"\", nilParentedInstance)\n");
 	}
 
-	if new_local_script_required {
+	if requirements.new_local_script_required {
 		generated_elseif_clauses.push_str("elseif className == \"LocalScript\" then\ninstance = NewLocalScript(propertiesMap.Source or \"\", nilParentedInstance)\n");
 	}
 
-	if new_module_script_required {
+	if requirements.new_module_script_required {
 		generated_elseif_clauses.push_str("elseif className == \"ModuleScript\" then\ninstance = NewModuleScript(propertiesMap.Source or \"\", nilParentedInstance)\n");
 	}
 
@@ -611,25 +612,25 @@ pub fn generate_with_options<'a>(
 		.replace("--@generate TypeId", &get_luau_for_type_ids(type_ids.clone()))
 		.replace(
 			"--@generate CFrameIdLookupTable",
-			if cframe_lookup_required { CFRAME_LOOKUP_TABLE } else { "-- CFrame lookup table not required" },
+			if requirements.cframe_lookup_required { CFRAME_LOOKUP_TABLE } else { "-- CFrame lookup table not required" },
 		)
 		.replace(
 			"--@generate NewScript",
-			if new_script_required { NEW_SCRIPT_SOURCE } else { "-- NewScript not required" },
+			if requirements.new_script_required { NEW_SCRIPT_SOURCE } else { "-- NewScript not required" },
 		)
 		.replace(
 			"--@generate NewLocalScript",
-			if new_local_script_required {
+			if requirements.new_local_script_required {
 				NEW_LOCAL_SCRIPT_SOURCE}
 				else {"-- NewLocalScript not required"}
 		)
 		.replace(
 			"--@generate NewModuleScript",
-			if new_module_script_required {
+			if requirements.new_module_script_required {
 				NEW_MODULE_SCRIPT_SOURCE
 			} else {"-- NewModuleScript not required"}
 		)
-		.replace("--@generate NilParentedInstance", if new_script_required || new_local_script_required || new_module_script_required { "local nilParentedInstance = Instance.new(\"Folder\", nil)" } else { "" })
+		.replace("--@generate NilParentedInstance", if requirements.new_script_required || requirements.new_local_script_required || requirements.new_module_script_required { "local nilParentedInstance = Instance.new(\"Folder\", nil)" } else { "" })
 		.replace(
 			"--@generate VariantDecoder",
 			&get_luau_variant_decoder_for_ids(type_ids),
@@ -637,22 +638,33 @@ pub fn generate_with_options<'a>(
 }
 
 pub fn generate_full_decoder() -> String {
-	generate_with_options(ALL_TYPE_IDS.iter(), true, true, true, true)
+	generate_with_options(
+		ALL_TYPE_IDS.iter(),
+		Requirements {
+			cframe_lookup_required: true,
+			new_script_required: true,
+			new_local_script_required: true,
+			new_module_script_required: true,
+		},
+	)
 }
 
 pub fn generate_specialized_decoder_for_dom(weak_dom: &WeakDom) -> String {
 	// we use a hashset to avoid duplicate TypeId's
 	let mut type_ids: HashSet<TypeId> = HashSet::from([TypeId::None, TypeId::String, TypeId::Ref]);
 
-	let mut new_script_required = false;
-	let mut new_local_script_required = false;
-	let mut new_module_script_required = false;
+	let mut requirements = Requirements {
+		cframe_lookup_required: false,
+		new_script_required: false,
+		new_local_script_required: false,
+		new_module_script_required: false,
+	};
 
 	for descendant in weak_dom.descendants() {
 		match descendant.class.as_str() {
-			"Script" => new_script_required = true,
-			"LocalScript" => new_local_script_required = true,
-			"ModuleScript" => new_module_script_required = true,
+			"Script" => requirements.new_script_required = true,
+			"LocalScript" => requirements.new_local_script_required = true,
+			"ModuleScript" => requirements.new_module_script_required = true,
 
 			_ => {}
 		}
@@ -662,15 +674,9 @@ pub fn generate_specialized_decoder_for_dom(weak_dom: &WeakDom) -> String {
 		}
 	}
 
-	let cframe_lookup_required = type_ids.contains(&TypeId::CFrame);
+	requirements.cframe_lookup_required = type_ids.contains(&TypeId::CFrame);
 
-	generate_with_options(
-		type_ids.iter(),
-		cframe_lookup_required,
-		new_script_required,
-		new_local_script_required,
-		new_module_script_required,
-	)
+	generate_with_options(type_ids.iter(), requirements)
 }
 
 #[cfg(feature = "base122")]

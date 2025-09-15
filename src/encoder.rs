@@ -3,8 +3,8 @@
 use crate::spec::TypeId;
 use color_eyre::eyre::{self, OptionExt, WrapErr};
 use rbx_dom_weak::{
-	types::{BinaryString, ContentType, Ref, Variant},
 	Instance, WeakDom,
+	types::{BinaryString, ContentType, Ref, Variant},
 };
 use std::{collections::HashMap, io::Write};
 
@@ -199,7 +199,7 @@ fn write_variant(
 				.write_all(&[TypeId::Enum as u8])
 				.wrap_err("failed writing type id for Enum")?;
 
-			leb128::write::unsigned(target, enumeration.to_u32() as u64)
+			leb128::write::unsigned(target, u64::from(enumeration.to_u32()))
 				.wrap_err("failed writing Enum as leb128 encoded unsigned integer")?;
 		}
 		Variant::EnumItem(enumeration) => {
@@ -208,7 +208,7 @@ fn write_variant(
 				.write_all(&[TypeId::Enum as u8])
 				.wrap_err("failed writing type id for EnumItem")?;
 
-			leb128::write::unsigned(target, enumeration.value as u64)
+			leb128::write::unsigned(target, u64::from(enumeration.value))
 				.wrap_err("failed writing EnumItem as leb128 encoded unsigned integer")?;
 		}
 		Variant::Faces(faces) => {
@@ -378,13 +378,12 @@ fn write_variant(
 			// once, therefore, we can map refs to smaller usize id's. furthermore, roblox cannot handle values
 			// above [`u32::MAX`].
 
-			let id = match referent_map.get(&referent) {
-				Some(&id) => id,
-				None => {
-					let id = referent_map.len() + 1; /* ensure an id of 0 is never reached, as we filter all zeros */
-					referent_map.insert(referent, id);
-					id
-				}
+			let id = if let Some(&id) = referent_map.get(&referent) {
+				id
+			} else {
+				let id = referent_map.len() + 1; /* ensure an id of 0 is never reached, as we filter all zeros */
+				referent_map.insert(referent, id);
+				id
 			};
 
 			leb128::write::unsigned(target, id.try_into()?)
