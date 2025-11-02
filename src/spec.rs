@@ -1,4 +1,4 @@
-//! Azalea's generated type id's and decoder generator
+//! Azalea's type id and decoder generator
 
 use rbx_dom_weak::{WeakDom, types::Variant};
 use std::fmt::Write;
@@ -46,7 +46,7 @@ macro_rules! define_type_id {
 macro_rules! decode_type_id {
 	($($tid:pat => $lua_body:expr,)+) => {
 
-		const fn get_luau_decode_variant_code(id: TypeId) -> &'static str {
+		const fn get_luau_decode_variant_code(id: &TypeId) -> &'static str {
 			match id {
 				$($tid => $lua_body,)*
 			}
@@ -56,7 +56,7 @@ macro_rules! decode_type_id {
 			let mut output = String::from("-- @generated\nVARIANT_DECODER = table.freeze({\n");
 
 			for id in ids {
-				write!(&mut output, "[TYPE_ID.{}] = function()\n{}\nend,\n", type_id_to_name(id), get_luau_decode_variant_code(*id)).unwrap();
+				write!(&mut output, "[TYPE_ID.{}] = function()\n{}\nend,\n", type_id_to_name(id), get_luau_decode_variant_code(id)).unwrap();
 			}
 
 			output.push_str("\n})");
@@ -152,10 +152,12 @@ fn variant_to_type_id(variant: &Variant) -> Vec<TypeId> {
 			rbx_dom_weak::types::PhysicalProperties::Custom(..) => TypeId::CustomPhysicalProperties,
 		}],
 		Variant::Attributes(attributes) => {
-			let mut tys = vec![TypeId::Attributes];
-			attributes.iter().for_each(|(_, variant)| {
-				tys.extend(variant_to_type_id(variant));
-			});
+			let mut tys = attributes
+				.iter()
+				.flat_map(|(_, variant)| variant_to_type_id(variant))
+				.collect::<Vec<TypeId>>();
+
+			tys.push(TypeId::Attributes);
 
 			tys
 		}
@@ -584,27 +586,29 @@ const NEW_MODULE_SCRIPT_SOURCE: &str = r#"local NewModuleScript: (code: string, 
 		return script
 	end"#;
 
-pub struct Requirements {
-	pub cframe_lookup_required: bool,
-	pub new_script_required: bool,
-	pub new_local_script_required: bool,
-	pub new_module_script_required: bool,
+bitflags::bitflags! {
+	pub struct Requirements: u8 {
+		const CFRAME_LOOKUP_TABLE = 0;
+		const NEW_SCRIPT_FUNCTION = 1;
+		const NEW_LOCAL_SCRIPT_FUNCTION = 2;
+		const NEW_MODULE_SCRIPT_FUNCTION = 3;
+	}
 }
 
-pub fn generate_with_options<'a>(
-	type_ids: impl Iterator<Item = &'a TypeId> + Clone,
-	requirements: Requirements,
+pub fn generate_with_options<'id>(
+	type_ids: impl Iterator<Item = &'id TypeId> + Clone,
+	requirements: &Requirements,
 ) -> String {
 	let mut generated_elseif_clauses = String::new();
-	if requirements.new_script_required {
+	if requirements.contains(Requirements::NEW_SCRIPT_FUNCTION) {
 		generated_elseif_clauses.push_str("elseif className == \"Script\" then\ninstance = NewScript(propertiesMap.Source or \"\", nilParentedInstance)\n");
 	}
 
-	if requirements.new_local_script_required {
+	if requirements.contains(Requirements::NEW_LOCAL_SCRIPT_FUNCTION) {
 		generated_elseif_clauses.push_str("elseif className == \"LocalScript\" then\ninstance = NewLocalScript(propertiesMap.Source or \"\", nilParentedInstance)\n");
 	}
 
-	if requirements.new_module_script_required {
+	if requirements.contains(Requirements::NEW_MODULE_SCRIPT_FUNCTION) {
 		generated_elseif_clauses.push_str("elseif className == \"ModuleScript\" then\ninstance = NewModuleScript(propertiesMap.Source or \"\", nilParentedInstance)\n");
 	}
 
@@ -612,25 +616,25 @@ pub fn generate_with_options<'a>(
 		.replace("--@generate TypeId", &get_luau_for_type_ids(type_ids.clone()))
 		.replace(
 			"--@generate CFrameIdLookupTable",
-			if requirements.cframe_lookup_required { CFRAME_LOOKUP_TABLE } else { "-- CFrame lookup table not required" },
+			if requirements.contains(Requirements::CFRAME_LOOKUP_TABLE) { CFRAME_LOOKUP_TABLE } else { "-- CFrame lookup table not required" },
 		)
 		.replace(
 			"--@generate NewScript",
-			if requirements.new_script_required { NEW_SCRIPT_SOURCE } else { "-- NewScript not required" },
+			if requirements.contains(Requirements::NEW_SCRIPT_FUNCTION) { NEW_SCRIPT_SOURCE } else { "-- NewScript not required" },
 		)
 		.replace(
 			"--@generate NewLocalScript",
-			if requirements.new_local_script_required {
+			if requirements.contains(Requirements::NEW_LOCAL_SCRIPT_FUNCTION) {
 				NEW_LOCAL_SCRIPT_SOURCE}
 				else {"-- NewLocalScript not required"}
 		)
 		.replace(
 			"--@generate NewModuleScript",
-			if requirements.new_module_script_required {
+			if requirements.contains(Requirements::NEW_MODULE_SCRIPT_FUNCTION) {
 				NEW_MODULE_SCRIPT_SOURCE
 			} else {"-- NewModuleScript not required"}
 		)
-		.replace("--@generate NilParentedInstance", if requirements.new_script_required || requirements.new_local_script_required || requirements.new_module_script_required { "local nilParentedInstance = Instance.new(\"Folder\", nil)" } else { "" })
+		.replace("--@generate NilParentedInstance", if requirements.contains(Requirements::NEW_SCRIPT_FUNCTION | Requirements::NEW_LOCAL_SCRIPT_FUNCTION | Requirements::NEW_MODULE_SCRIPT_FUNCTION) { "local nilParentedInstance = Instance.new(\"Folder\", nil)" } else { "" })
 		.replace(
 			"--@generate VariantDecoder",
 			&get_luau_variant_decoder_for_ids(type_ids),
@@ -638,33 +642,20 @@ pub fn generate_with_options<'a>(
 }
 
 pub fn generate_full_decoder() -> String {
-	generate_with_options(
-		ALL_TYPE_IDS.iter(),
-		Requirements {
-			cframe_lookup_required: true,
-			new_script_required: true,
-			new_local_script_required: true,
-			new_module_script_required: true,
-		},
-	)
+	generate_with_options(ALL_TYPE_IDS.iter(), &Requirements::all())
 }
 
 pub fn generate_specialized_decoder_for_dom(weak_dom: &WeakDom) -> String {
 	// we use a hashset to avoid duplicate TypeId's
 	let mut type_ids: HashSet<TypeId> = HashSet::from([TypeId::None, TypeId::String, TypeId::Ref]);
 
-	let mut requirements = Requirements {
-		cframe_lookup_required: false,
-		new_script_required: false,
-		new_local_script_required: false,
-		new_module_script_required: false,
-	};
+	let mut requirements = Requirements::empty();
 
 	for descendant in weak_dom.descendants() {
 		match descendant.class.as_str() {
-			"Script" => requirements.new_script_required = true,
-			"LocalScript" => requirements.new_local_script_required = true,
-			"ModuleScript" => requirements.new_module_script_required = true,
+			"Script" => requirements |= Requirements::NEW_SCRIPT_FUNCTION,
+			"LocalScript" => requirements |= Requirements::NEW_LOCAL_SCRIPT_FUNCTION,
+			"ModuleScript" => requirements |= Requirements::NEW_MODULE_SCRIPT_FUNCTION,
 
 			_ => {}
 		}
@@ -674,16 +665,15 @@ pub fn generate_specialized_decoder_for_dom(weak_dom: &WeakDom) -> String {
 		}
 	}
 
-	requirements.cframe_lookup_required = type_ids.contains(&TypeId::CFrame);
+	if type_ids.contains(&TypeId::CFrame) {
+		requirements |= Requirements::CFRAME_LOOKUP_TABLE;
+	}
 
-	generate_with_options(type_ids.iter(), requirements)
+	generate_with_options(type_ids.iter(), &requirements)
 }
 
 #[cfg(feature = "base122")]
 fn internal_create_script(weak_dom: &WeakDom) -> String {
-	let mut output = String::new();
-	let mut heap_memory = Vec::new();
-
 	/*
 		* in a perfect world, we would be able to directly wrap writers around each other as below:
 		* [[azalea encoder] -> [zstd writer] -> [base64/base122 writer]]
@@ -697,24 +687,28 @@ fn internal_create_script(weak_dom: &WeakDom) -> String {
 		* however, the base122 writer is pretty unstable and results in corrupted blocks / checksum failures
 		*/
 
-	crate::encoder::encode_dom_into_writer(weak_dom, &mut heap_memory).expect("failed encoding dom");
+	let mut output = String::new();
+	let mut encoded_dom = Vec::new();
 
-	let mut zstd_out = Vec::with_capacity(heap_memory.len() / 2);
+	crate::encoder::encode_dom_into_writer(weak_dom, &mut encoded_dom).expect("failed encoding dom");
+
+	let mut zstd_out = Vec::with_capacity(encoded_dom.len() / 2);
 	let mut zstd_encoder = zstd::Encoder::new(&mut zstd_out, 22).unwrap();
 	zstd_encoder.include_checksum(true).unwrap();
 	zstd_encoder.include_contentsize(true).unwrap();
 	zstd_encoder
-		.set_pledged_src_size(Some(heap_memory.len() as u64))
+		.set_pledged_src_size(Some(encoded_dom.len() as u64))
 		.unwrap();
 
-	std::io::copy(&mut std::io::Cursor::new(heap_memory), &mut zstd_encoder).unwrap();
+	std::io::copy(&mut std::io::Cursor::new(encoded_dom), &mut zstd_encoder).unwrap();
 	zstd_encoder.finish().unwrap();
 
+	// old base64 generator
 	// output.push_str("local payloadBuffer: buffer = game:GetService(\"HttpService\"):JSONDecode([[{\"m\":null,\"t\":\"buffer\",\"zbase64\":\"");
 	// output.push_str(&BASE64_STANDARD.encode(&zstd_out));
 	// output.push_str("\"}]])\n");
 
-	// SAFETY: Base122 encoded data is designed around UTF-8 constraints
+	// SAFETY: Base123 (and by extension, Base122) encoded data is valid UTF-8.
 	let base122 = crate::base122::encode(&zstd_out);
 	output.push_str(
 		&include_str!("./luau/minifiedCombinator.luau").replace("%REPLACE_ME%", unsafe {

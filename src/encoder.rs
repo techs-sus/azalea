@@ -318,11 +318,11 @@ fn write_variant(
 				target
 					.write_all(
 						[
-							custom_physical_properties.density,
-							custom_physical_properties.elasticity,
-							custom_physical_properties.elasticity_weight,
-							custom_physical_properties.friction,
-							custom_physical_properties.friction_weight,
+							custom_physical_properties.density(),
+							custom_physical_properties.elasticity(),
+							custom_physical_properties.elasticity_weight(),
+							custom_physical_properties.friction(),
+							custom_physical_properties.friction_weight(),
 						]
 						.map(f32::to_le_bytes)
 						.as_flattened(),
@@ -381,17 +381,13 @@ fn write_variant(
 			let id = if let Some(&id) = referent_map.get(&referent) {
 				id
 			} else {
-				let id = referent_map.len() + 1; /* ensure an id of 0 is never reached, as we filter all zeros */
+				let id = referent_map.len();
 				referent_map.insert(referent, id);
 				id
 			};
 
 			leb128::write::unsigned(target, id.try_into()?)
 				.wrap_err("failed writing leb128 unsigned integer for Ref")?;
-
-			// target
-			// 	.write_all(&[0])
-			// 	.wrap_err("failed writing null byte for Ref")?;
 		}
 		Variant::Region3(region3) => {
 			target
