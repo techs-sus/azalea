@@ -132,6 +132,7 @@ dependencies = [
  "clap 4.5.51",
  "color-eyre",
  "darklua",
+ "hybrid-array",
  "leb128",
  "rbx_binary",
  "rbx_dom_weak",
@@ -822,6 +823,15 @@ name = "hermit-abi"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc0fef456e4baa96da950455cd02c081ca953b141298e41db3fc7e36b1da849c"
+
+[[package]]
+name = "hybrid-array"
+version = "0.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f471e0a81b2f90ffc0cb2f951ae04da57de8baa46fa99112b062a5173a5088d0"
+dependencies = [
+ "typenum",
+]
 
 [[package]]
 name = "ignore"

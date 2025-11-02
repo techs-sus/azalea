@@ -709,7 +709,7 @@ fn internal_create_script(weak_dom: &WeakDom) -> String {
 	// output.push_str("\"}]])\n");
 
 	// SAFETY: Base123 (and by extension, Base122) encoded data is valid UTF-8.
-	let base122 = crate::base122::encode(&zstd_out);
+	let base122 = crate::base122::base123_encode(&zstd_out);
 	output.push_str(
 		&include_str!("./luau/minifiedCombinator.luau").replace("%REPLACE_ME%", unsafe {
 			str::from_utf8_unchecked(&base122)
