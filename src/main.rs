@@ -39,7 +39,7 @@ enum Command {
 #[derive(clap::Args)]
 struct GenerateOptions {
 	/// Input model file(s) (.rbxm, .rbxmx)
-	#[arg(short, long = "input", num_args = 1..)]
+	#[arg(short, long = "input", num_args = 1.., required = true)]
 	inputs: Vec<PathBuf>,
 
 	/// Output luau file / directory
@@ -214,6 +214,7 @@ fn main() -> eyre::Result<()> {
 			let metadata = std::fs::metadata(&options.output);
 
 			inputs.reserve_exact(options.inputs.len());
+
 			let is_single_file = options.inputs.len() == 1;
 
 			if is_single_file {
@@ -226,8 +227,9 @@ fn main() -> eyre::Result<()> {
 
 				inputs.push((options.inputs.into_iter().next().unwrap(), options.output));
 			} else {
+				ensure!(metadata.is_ok(), "output path does not exist");
 				ensure!(
-					metadata.is_ok() && metadata.unwrap().is_dir(),
+					metadata.unwrap().is_dir(),
 					"output path is not a directory, but multiple inputs were passed"
 				);
 

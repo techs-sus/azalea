@@ -25,14 +25,14 @@ cd azalea
 # using -m and -f together lead to a panic! you can only use one
 
 # -s is optional: you can specify a location for a specialized decoder to be generated
-cargo run -- encode -i input.rbxm -o output.bin -s specializedDecoder.luau -m
+cargo run --features="base122 cli" -- encode -i input.rbxm -o output.bin -s specializedDecoder.luau -m
 
 # generates a full decoder
-cargo run -- generate-full-decoder -o output.luau -f
+cargo run --features="base122 cli" -- generate-full-decoder -o output.luau -f
 # generates a full script: input.rbxm must be a MainModule or have a root ModuleScript
-cargo run -- generate-full-script -i input.rbxm -o output.luau -m
+cargo run --features="base122 cli" -- generate-full-script -i input.rbxm -o output.luau -m
 # generates an embeddable script, useful for embedding assets
-cargo run -- generate-embeddable-script -i input.rbxm -o output.luau -m
+cargo run --features="base122 cli" -- generate-embeddable-script -i input.rbxm -o output.luau -m
 ```
 
 ### Development notes

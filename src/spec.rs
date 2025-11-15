@@ -587,12 +587,108 @@ const NEW_MODULE_SCRIPT_SOURCE: &str = r#"local NewModuleScript: (code: string, 
 	end"#;
 
 bitflags::bitflags! {
+	#[repr(transparent)]
+	#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 	pub struct Requirements: u8 {
+		/// Enable this if you want to decode anything which references a CFrame value.
 		const CFRAME_LOOKUP_TABLE = 0;
+		/// Enable this if you want to properly decode Script instances.
 		const NEW_SCRIPT_FUNCTION = 1;
+		/// Enable this if you want to properly decode LocalScript instances.
 		const NEW_LOCAL_SCRIPT_FUNCTION = 2;
+		/// Enable this if you want to properly decode ModuleScript instances.
 		const NEW_MODULE_SCRIPT_FUNCTION = 3;
+
+		/* if NEW_SCRIPT_FUNCTION or NEW_LOCAL_SCRIPT_FUNCTION or NEW_MODULE_SCRIPT_FUNCTION are enabled, one of the below MUST be enabled */
+
+		/// Enable this if you want to run Azalea generated scripts in the command bar.
+		const STUDIO_SUPPORT = 4;
+		/// Enable this if you want to run Azalea generated scripts in a compliant OpenSB implementation which supports NewScript, NewLocalScript and NewModuleScript.
+		const OPENSB_SUPPORT = 5;
+		/// Enable this if you want to run Azalea generated scripts in an environment which supports NewScript, NewLocalScript but NOT NewModuleScript.
+		/// We shim require, and you'll need to use the shimmed version for this to be useful at all.
+		const LEGACY_SUPPORT = 6;
 	}
+}
+
+fn generate_new_script_glue(requirements: &Requirements) -> String {
+	let mut exprs = vec![];
+	if requirements.contains(Requirements::OPENSB_SUPPORT)
+		|| requirements.contains(Requirements::LEGACY_SUPPORT)
+	{
+		exprs.push("NewScript");
+	}
+
+	if requirements.contains(Requirements::STUDIO_SUPPORT) {
+		exprs.push(
+			r#"(game:GetService("RunService"):IsStudio() and (function(code, parent)
+		local script = Instance.new("Script")
+		script.Source = code
+		script.Parent = parent
+
+		return script
+	end))"#,
+		)
+	}
+
+	format!(
+		"local NewScript: (code: string, parent: Instance?) -> Script = {}",
+		exprs.join(" or ")
+	)
+}
+
+fn generate_local_script_glue(requirements: &Requirements) -> String {
+	let mut exprs = Vec::with_capacity(2);
+	if requirements.contains(Requirements::OPENSB_SUPPORT)
+		|| requirements.contains(Requirements::LEGACY_SUPPORT)
+	{
+		exprs.push("NewLocalScript");
+	}
+
+	if requirements.contains(Requirements::STUDIO_SUPPORT) {
+		exprs.push(
+			r#"(game:GetService("RunService"):IsStudio() and (function(code, parent)
+		local script = Instance.new("LocalScript")
+		script.Source = code
+		script.Parent = parent
+
+		return script
+	end))"#,
+		)
+	}
+
+	format!(
+		"local NewLocalScript: (code: string, parent: Instance?) -> LocalScript = {}",
+		exprs.join(" or ")
+	)
+}
+
+fn generate_module_script_glue(requirements: &Requirements) -> String {
+	let mut exprs = Vec::with_capacity(3);
+	if requirements.contains(Requirements::OPENSB_SUPPORT) {
+		exprs.push("NewModuleScript");
+	}
+
+	if requirements.contains(Requirements::STUDIO_SUPPORT) {
+		exprs.push(
+			r#"(game:GetService("RunService"):IsStudio() and (function(code, parent)
+		local script = Instance.new("ModuleScript")
+		script.Source = code
+		script.Parent = parent
+
+		return script
+	end))"#,
+		)
+	}
+
+	if requirements.contains(Requirements::LEGACY_SUPPORT) {
+		exprs.push(include_str!("luau/shims/NewModuleScript.luau"));
+	}
+
+	format!(
+		"local NewModuleScript: (code: string, parent: Instance?) -> ModuleScript = {}",
+		exprs.join(" or ")
+	)
 }
 
 pub fn generate_with_options<'id>(
@@ -620,19 +716,18 @@ pub fn generate_with_options<'id>(
 		)
 		.replace(
 			"--@generate NewScript",
-			if requirements.contains(Requirements::NEW_SCRIPT_FUNCTION) { NEW_SCRIPT_SOURCE } else { "-- NewScript not required" },
-		)
+			if requirements.contains(Requirements::NEW_SCRIPT_FUNCTION) { generate_new_script_glue(requirements) } else { "-- NewScript not required".to_string() }.as_str())
 		.replace(
 			"--@generate NewLocalScript",
 			if requirements.contains(Requirements::NEW_LOCAL_SCRIPT_FUNCTION) {
-				NEW_LOCAL_SCRIPT_SOURCE}
-				else {"-- NewLocalScript not required"}
+				generate_local_script_glue(requirements)
+			} else {"-- NewLocalScript not required".to_string()}.as_str()
 		)
 		.replace(
 			"--@generate NewModuleScript",
 			if requirements.contains(Requirements::NEW_MODULE_SCRIPT_FUNCTION) {
-				NEW_MODULE_SCRIPT_SOURCE
-			} else {"-- NewModuleScript not required"}
+				generate_module_script_glue(requirements)
+			} else {"-- NewModuleScript not required".to_string()}.as_str()
 		)
 		.replace("--@generate NilParentedInstance", if requirements.contains(Requirements::NEW_SCRIPT_FUNCTION | Requirements::NEW_LOCAL_SCRIPT_FUNCTION | Requirements::NEW_MODULE_SCRIPT_FUNCTION) { "local nilParentedInstance = Instance.new(\"Folder\", nil)" } else { "" })
 		.replace(
@@ -668,6 +763,11 @@ pub fn generate_specialized_decoder_for_dom(weak_dom: &WeakDom) -> String {
 	if type_ids.contains(&TypeId::CFrame) {
 		requirements |= Requirements::CFRAME_LOOKUP_TABLE;
 	}
+
+	// TODO: Should we let the user pick which environments they want to support?
+	requirements |= Requirements::STUDIO_SUPPORT;
+	requirements |= Requirements::OPENSB_SUPPORT;
+	requirements |= Requirements::LEGACY_SUPPORT;
 
 	generate_with_options(type_ids.iter(), &requirements)
 }
