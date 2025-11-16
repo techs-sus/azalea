@@ -30,13 +30,13 @@ enum Command {
 		options: GenerateOptions,
 	},
 
-	/// Fully encodes a model file into an embeddable script, with optional formatting and minification available.
+	/// Fully encodes a model file into an embeddable script, with optional formatting, minification and compat available.
 	GenerateEmbeddableScript {
 		#[clap(flatten)]
 		options: GenerateOptions,
 	},
 
-	/// Generates the full decoder into a file, with optional formatting and minification available.
+	/// Generates the full decoder into a file, with optional formatting, minification and compat available.
 	GenerateFullDecoder { output: PathBuf },
 }
 
