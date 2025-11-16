@@ -20,8 +20,7 @@ for await (const file of glob.scan(".")) {
 	const binFilePath = file.replace(fileExtensionRegex, ".bin");
 
 	const encodedBytes = Buffer.from(
-		ZstdStream.compress(await Bun.file(binFilePath).bytes(), 22),
-		"utf8"
+		ZstdStream.compress(await Bun.file(binFilePath).bytes(), 22, true)
 	).toString("base64");
 
 	await Bun.write(

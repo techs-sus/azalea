@@ -1,4 +1,5 @@
 {
 	"luau-lsp.sourcemap.rojoProjectFile": "place.project.json",
-	"stylua.targetReleaseVersion": "latest"
+	"stylua.targetReleaseVersion": "latest",
+	"markdown.validate.enabled": true
 }

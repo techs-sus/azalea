@@ -1,4 +1,5 @@
 import { $, Glob } from "bun";
+import { ZstdInit, ZstdStream } from "@oneidentity/zstd-js";
 import chalk from "chalk";
 
 const fileExtensionRegex = /\.[^.]+$/;
@@ -11,6 +12,7 @@ const platformBinary =
 await $`cargo build --bin azalea --features="base122 cli"`;
 
 await Promise.all([
+	await ZstdInit(),
 	$`${platformBinary} encode --input examples/*.rbxm --output examples`,
 	$`${platformBinary} generate-embeddable-script --input examples/*.rbxm --output examples`,
 ]);
@@ -41,12 +43,15 @@ const glob = new Glob("examples/*.rbxm");
 
 const promises = [];
 for await (const file of glob.scan()) {
-	const luauFilePath = file.replace(fileExtensionRegex, ".luau");
+	// const luauFilePath = file.replace(fileExtensionRegex, ".luau");
 	const binFilePath = file.replace(fileExtensionRegex, ".bin");
 	const binZstFilePath = binFilePath + ".zst";
 
 	promises.push(
-		$`zstd ${binFilePath} -o ${binZstFilePath} -22 --ultra --force`.quiet()
+		Bun.write(
+			Bun.file(binZstFilePath),
+			ZstdStream.compress(await Bun.file(binFilePath).bytes(), 22, true)
+		)
 	);
 }
 
@@ -55,8 +60,8 @@ await Promise.all(promises);
 for await (const rbxmFilePath of glob.scan()) {
 	const binZstFilePath = rbxmFilePath.replace(fileExtensionRegex, ".bin.zst");
 
-	const binZstFileSize = await Bun.file(binZstFilePath).size;
-	const rbxmFileSize = await Bun.file(rbxmFilePath).size;
+	const binZstFileSize = Bun.file(binZstFilePath).size;
+	const rbxmFileSize = Bun.file(rbxmFilePath).size;
 	const prettyAzaleaText = chalk.magentaBright("(via Azalea)");
 	const prettyRobloxText = chalk.ansi256(214)("(via Roblox)");
 
