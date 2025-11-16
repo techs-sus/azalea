@@ -1,5 +1,6 @@
 //! Azalea's type id and decoder generator
 
+use askama::Template;
 use rbx_dom_weak::{WeakDom, types::Variant};
 use std::fmt::Write;
 use std::{collections::HashSet, str};
@@ -30,7 +31,7 @@ macro_rules! define_type_id {
 		}
 
 		fn get_luau_for_type_ids<'a>(ids: impl Iterator<Item = &'a TypeId>) -> String {
-			let mut output = String::from("-- @generated\nlocal TYPE_ID = table.freeze({\n");
+			let mut output = String::from("local TYPE_ID = table.freeze({\n");
 
 			for id in ids {
 				write!(&mut output, "{} = {},", type_id_to_name(id), *id as u8).unwrap();
@@ -101,6 +102,10 @@ define_type_id! {
 	Vector3 = 32,
 	Vector3int16 = 33,
 	Font = 34,
+
+	ContentNone = 35,
+	ContentObject = 36,
+	ContentUri = 37,
 }
 
 fn variant_to_type_id(variant: &Variant) -> Vec<TypeId> {
@@ -526,9 +531,10 @@ decode_type_id! {
 		loc += 20
 		return PhysicalProperties.new(density, friction, elasticity, frictionWeight, elasticityWeight)
 	"#,
+	TypeId::ContentNone => "loc += 1; return Content.none",
+	TypeId::ContentObject => "return nextUnsignedInteger()",
+	TypeId::ContentUri => "return Content.fromUri(nextNullstring())",
 }
-
-const TEMPLATE_LUAU: &str = include_str!("./luau/decoderTemplate.luau");
 
 // thank you rojo developers: https://dom.rojo.space/binary.html#cframe (god bless)
 const CFRAME_LOOKUP_TABLE: &str = r"local CFRAME_ID_LOOKUP_TABLE = table.freeze({
@@ -559,33 +565,6 @@ const CFRAME_LOOKUP_TABLE: &str = r"local CFRAME_ID_LOOKUP_TABLE = table.freeze(
 	[0x23] = CFrame.fromEulerAnglesYXZ(0, math.rad(-90), math.rad(180)),
 })";
 
-const NEW_SCRIPT_SOURCE: &str = r#"local NewScript: (code: string, parent: Instance?) -> Script = NewScript
-	or function(code, parent)
-		local script = Instance.new("Script")
-		script.Source = code
-		script.Parent = parent
-
-		return script
-	end"#;
-
-const NEW_LOCAL_SCRIPT_SOURCE: &str = r#"local NewLocalScript: (code: string, parent: Instance?) -> LocalScript = NewLocalScript
-	or function(code, parent)
-		local script = Instance.new("LocalScript")
-		script.Source = code
-		script.Parent = parent
-
-		return script
-	end"#;
-
-const NEW_MODULE_SCRIPT_SOURCE: &str = r#"local NewModuleScript: (code: string, parent: Instance?) -> ModuleScript = NewModuleScript
-	or function(code, parent)
-		local script = Instance.new("ModuleScript")
-		script.Source = code
-		script.Parent = parent
-
-		return script
-	end"#;
-
 bitflags::bitflags! {
 	#[repr(transparent)]
 	#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -599,16 +578,32 @@ bitflags::bitflags! {
 		/// Enable this if you want to properly decode ModuleScript instances.
 		const NEW_MODULE_SCRIPT_FUNCTION = 3;
 
+		/// Enable this if you want to properly decode MeshPart instances.
+		const MESH_PART_SUPPORT = 4;
+
 		/* if NEW_SCRIPT_FUNCTION or NEW_LOCAL_SCRIPT_FUNCTION or NEW_MODULE_SCRIPT_FUNCTION are enabled, one of the below MUST be enabled */
 
 		/// Enable this if you want to run Azalea generated scripts in the command bar.
-		const STUDIO_SUPPORT = 4;
+		const STUDIO_SUPPORT = 5;
 		/// Enable this if you want to run Azalea generated scripts in a compliant OpenSB implementation which supports NewScript, NewLocalScript and NewModuleScript.
-		const OPENSB_SUPPORT = 5;
+		const OPENSB_SUPPORT = 6;
 		/// Enable this if you want to run Azalea generated scripts in an environment which supports NewScript, NewLocalScript but NOT NewModuleScript.
 		/// We shim require, and you'll need to use the shimmed version for this to be useful at all.
-		const LEGACY_SUPPORT = 6;
+		const LEGACY_SUPPORT = 7;
 	}
+}
+
+#[derive(Template)]
+#[template(path = "decoder.txt")]
+struct DecoderTemplate<'a> {
+	type_id_table: &'a str,
+	cframe_lookup_table: Option<&'a str>,
+	new_script_shim: Option<&'a str>,
+	new_local_script_shim: Option<&'a str>,
+	new_module_script_shim: Option<&'a str>,
+	variant_decoder_table: &'a str,
+
+	mesh_part_exists: bool,
 }
 
 fn generate_new_script_glue(requirements: &Requirements) -> String {
@@ -637,7 +632,7 @@ fn generate_new_script_glue(requirements: &Requirements) -> String {
 	)
 }
 
-fn generate_local_script_glue(requirements: &Requirements) -> String {
+fn generate_new_local_script_glue(requirements: &Requirements) -> String {
 	let mut exprs = Vec::with_capacity(2);
 	if requirements.contains(Requirements::OPENSB_SUPPORT)
 		|| requirements.contains(Requirements::LEGACY_SUPPORT)
@@ -663,7 +658,7 @@ fn generate_local_script_glue(requirements: &Requirements) -> String {
 	)
 }
 
-fn generate_module_script_glue(requirements: &Requirements) -> String {
+fn generate_new_module_script_glue(requirements: &Requirements) -> String {
 	let mut exprs = Vec::with_capacity(3);
 	if requirements.contains(Requirements::OPENSB_SUPPORT) {
 		exprs.push("NewModuleScript");
@@ -695,45 +690,31 @@ pub fn generate_with_options<'id>(
 	type_ids: impl Iterator<Item = &'id TypeId> + Clone,
 	requirements: &Requirements,
 ) -> String {
-	let mut generated_elseif_clauses = String::new();
-	if requirements.contains(Requirements::NEW_SCRIPT_FUNCTION) {
-		generated_elseif_clauses.push_str("elseif className == \"Script\" then\ninstance = NewScript(propertiesMap.Source or \"\", nilParentedInstance)\n");
-	}
+	let new_script_shim = requirements
+		.contains(Requirements::NEW_SCRIPT_FUNCTION)
+		.then(|| generate_new_script_glue(requirements));
 
-	if requirements.contains(Requirements::NEW_LOCAL_SCRIPT_FUNCTION) {
-		generated_elseif_clauses.push_str("elseif className == \"LocalScript\" then\ninstance = NewLocalScript(propertiesMap.Source or \"\", nilParentedInstance)\n");
-	}
+	let new_local_script_shim = requirements
+		.contains(Requirements::NEW_LOCAL_SCRIPT_FUNCTION)
+		.then(|| generate_new_local_script_glue(requirements));
 
-	if requirements.contains(Requirements::NEW_MODULE_SCRIPT_FUNCTION) {
-		generated_elseif_clauses.push_str("elseif className == \"ModuleScript\" then\ninstance = NewModuleScript(propertiesMap.Source or \"\", nilParentedInstance)\n");
-	}
+	let new_module_script_shim = requirements
+		.contains(Requirements::NEW_MODULE_SCRIPT_FUNCTION)
+		.then(|| generate_new_module_script_glue(requirements));
 
-	TEMPLATE_LUAU
-		.replace("--@generate TypeId", &get_luau_for_type_ids(type_ids.clone()))
-		.replace(
-			"--@generate CFrameIdLookupTable",
-			if requirements.contains(Requirements::CFRAME_LOOKUP_TABLE) { CFRAME_LOOKUP_TABLE } else { "-- CFrame lookup table not required" },
-		)
-		.replace(
-			"--@generate NewScript",
-			if requirements.contains(Requirements::NEW_SCRIPT_FUNCTION) { generate_new_script_glue(requirements) } else { "-- NewScript not required".to_string() }.as_str())
-		.replace(
-			"--@generate NewLocalScript",
-			if requirements.contains(Requirements::NEW_LOCAL_SCRIPT_FUNCTION) {
-				generate_local_script_glue(requirements)
-			} else {"-- NewLocalScript not required".to_string()}.as_str()
-		)
-		.replace(
-			"--@generate NewModuleScript",
-			if requirements.contains(Requirements::NEW_MODULE_SCRIPT_FUNCTION) {
-				generate_module_script_glue(requirements)
-			} else {"-- NewModuleScript not required".to_string()}.as_str()
-		)
-		.replace("--@generate NilParentedInstance", if requirements.contains(Requirements::NEW_SCRIPT_FUNCTION | Requirements::NEW_LOCAL_SCRIPT_FUNCTION | Requirements::NEW_MODULE_SCRIPT_FUNCTION) { "local nilParentedInstance = Instance.new(\"Folder\", nil)" } else { "" })
-		.replace(
-			"--@generate VariantDecoder",
-			&get_luau_variant_decoder_for_ids(type_ids),
-		).replace("--@generate SpecializedInstanceCreator", &format!("if className == \"DataModel\" then\ninstance = Instance.new(\"Model\")\n{generated_elseif_clauses}\nelse\ninstance = Instance.new(className)\nend"))
+	let template = DecoderTemplate {
+		cframe_lookup_table: requirements
+			.contains(Requirements::CFRAME_LOOKUP_TABLE)
+			.then_some(CFRAME_LOOKUP_TABLE),
+		type_id_table: &get_luau_for_type_ids(type_ids.clone()),
+		new_script_shim: new_script_shim.as_deref(),
+		new_local_script_shim: new_local_script_shim.as_deref(),
+		new_module_script_shim: new_module_script_shim.as_deref(),
+		variant_decoder_table: &get_luau_variant_decoder_for_ids(type_ids),
+		mesh_part_exists: requirements.contains(Requirements::MESH_PART_SUPPORT),
+	};
+
+	template.render().unwrap()
 }
 
 pub fn generate_full_decoder() -> String {
@@ -751,6 +732,7 @@ pub fn generate_specialized_decoder_for_dom(weak_dom: &WeakDom) -> String {
 			"Script" => requirements |= Requirements::NEW_SCRIPT_FUNCTION,
 			"LocalScript" => requirements |= Requirements::NEW_LOCAL_SCRIPT_FUNCTION,
 			"ModuleScript" => requirements |= Requirements::NEW_MODULE_SCRIPT_FUNCTION,
+			"MeshPart" => requirements |= Requirements::MESH_PART_SUPPORT,
 
 			_ => {}
 		}
@@ -808,7 +790,7 @@ fn internal_create_script(weak_dom: &WeakDom) -> String {
 	// output.push_str(&BASE64_STANDARD.encode(&zstd_out));
 	// output.push_str("\"}]])\n");
 
-	// SAFETY: Base123 (and by extension, Base122) encoded data is valid UTF-8.
+	// SAFETY: Base122 (and by extension, Base123) encoded data is valid UTF-8.
 	let base122 = crate::base122::base123_encode(&zstd_out);
 	output.push_str(
 		&include_str!("./luau/minifiedCombinator.luau").replace("%REPLACE_ME%", unsafe {

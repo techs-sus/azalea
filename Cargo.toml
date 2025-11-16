@@ -42,6 +42,8 @@ bitflags = "2.10.0"
 
 hybrid-array = "0.4.5"
 
+askama = "0.14.0"
+
 # speed up backtrace generation on debug builds
 [profile.dev.package.backtrace]
 opt-level = 3

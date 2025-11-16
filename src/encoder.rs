@@ -177,17 +177,20 @@ fn write_variant(
 			match content.value() {
 				ContentType::None => {
 					target
-						.write_all(&[TypeId::None as u8])
+						.write_all(&[TypeId::ContentNone as u8])
 						.wrap_err("failed to write type id for nil Content")?;
 				}
 				ContentType::Object(referent) => {
+					target
+						.write_all(&[TypeId::ContentObject as u8])
+						.wrap_err("failed to write type id for nil Content")?;
 					write_variant(target, Variant::Ref(*referent), referent_map)?;
 				}
 				ContentType::Uri(string) => {
 					target
-						.write_all(&[TypeId::String as u8])
+						.write_all(&[TypeId::ContentUri as u8])
 						.wrap_err("failed to write type id for uri Content")?;
-					write_varstring(target, string.as_bytes())
+					write_nullstring(target, string)
 						.wrap_err("failed writing varstring for uri Content string")?;
 				}
 				_ => todo!("ContentType {:#?} is not yet implemented", content.value()),
@@ -256,11 +259,14 @@ fn write_variant(
 				.write_all(&int.to_le_bytes())
 				.wrap_err("failed writing bytes for Int32")?;
 		}
-		Variant::Int64(int) => write_variant(
-			target,
-			Variant::Int32(i32::try_from(int).wrap_err("failed truncating int64 to int32")?),
-			referent_map,
-		)?,
+		Variant::Int64(int) => match i32::try_from(int) {
+			/*
+				* you can't really represent true i64's in lua
+				* so we try representing them as i32's first, and fallback to f64
+			 */
+			Ok(int) => write_variant(target, Variant::Int32(int), referent_map)?,
+			Err(_) => write_variant(target, Variant::Float64(int as f64), referent_map)?,
+		},
 		Variant::MaterialColors(colors) => {
 			let bytes = colors.encode();
 			let mut target_bytes = Vec::with_capacity(bytes.len() + 1);
