@@ -147,9 +147,9 @@ fn variant_to_type_id(variant: &Variant) -> Vec<TypeId> {
 			None => TypeId::None,
 		}],
 		Variant::Content(content) => vec![match content.value() {
-			rbx_dom_weak::types::ContentType::None => TypeId::None,
-			rbx_dom_weak::types::ContentType::Uri(_) => TypeId::String,
-			rbx_dom_weak::types::ContentType::Object(_) => TypeId::Ref,
+			rbx_dom_weak::types::ContentType::None => TypeId::ContentNone,
+			rbx_dom_weak::types::ContentType::Object(_) => TypeId::ContentObject,
+			rbx_dom_weak::types::ContentType::Uri(_) => TypeId::ContentUri,
 			ty => todo!("ContentType {ty:#?} is not yet covered"),
 		}],
 		Variant::PhysicalProperties(prop) => vec![match prop {
