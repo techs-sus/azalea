@@ -8,7 +8,7 @@ readme = "README.md"
 repository = "https://github.com/techs-sus/azalea"
 
 [features]
-default = ["base122"]
+default = ["base122", "cli"]
 base122 = []
 cli = ["dep:clap", "dep:wild", "dep:darklua", "dep:stylua"]
 

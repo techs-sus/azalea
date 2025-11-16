@@ -680,7 +680,7 @@ local function decode(payloadBuffer: buffer)
 		instance.Name = name
 
 		if propertiesMap.Attributes then
-			for attributeName, value in propertiesMap.Attributes do
+			for attributeName, value in pairs(propertiesMap.Attributes) do
 				instance:SetAttribute(attributeName, value)
 			end
 
@@ -688,14 +688,14 @@ local function decode(payloadBuffer: buffer)
 		end
 
 		if propertiesMap.Tags then
-			for _, tag in propertiesMap.Tags do
+			for _, tag in pairs(propertiesMap.Tags) do
 				instance:AddTag(tag)
 			end
 
 			propertiesMap.Tags = nil
 		end
 
-		for propertyName, propertyValue in propertiesMap do
+		for propertyName, propertyValue in pairs(propertiesMap) do
 			-- TODO: add custom handlers
 			xpcall(function()
 				instance[propertyName] = propertyValue
@@ -727,9 +727,9 @@ local function decode(payloadBuffer: buffer)
 
 	assert(rootReferent, "no root referent in hierarchy")
 
-	for referent, propertyMap in latePropertiesMap do
+	for referent, propertyMap in pairs(latePropertiesMap) do
 		-- late property handling (referent handling)
-		for propertyName, propertyValue in propertyMap do
+		for propertyName, propertyValue in pairs(propertyMap) do
 			xpcall(function()
 				referentTree[referent][propertyName] = if propertyValue.isContentObject
 					then Content.fromObject(referentTree[propertyValue.variant])

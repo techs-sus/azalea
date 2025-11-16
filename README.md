@@ -21,6 +21,7 @@ azalea encode -i input.rbxm -o output.bin -s specializedDecoder.luau -m
 # -o = --output (either a file, or a directory (then multiple inputs must be present), REQUIRED)
 # -f = --format (with stylua, optional)
 # -m = --minify (with darklua, optional)
+# -c = --compat (makes code generated Lua 5.1 compatible; done via darklua, optional)
 
 # generates a full decoder: can decode any file under azalea's format
 azalea generate-full-decoder -o output.luau -f

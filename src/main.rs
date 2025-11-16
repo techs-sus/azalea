@@ -1,7 +1,11 @@
 use azalea::{encoder, spec};
 use clap::{Parser, Subcommand};
 use color_eyre::eyre::{self, Context, bail, ensure, eyre};
-use darklua_core::Resources;
+use darklua_core::rules::{
+	ConvertLuauNumber, RemoveCompoundAssignment, RemoveContinue, RemoveFloorDivision,
+	RemoveIfExpression, RemoveInterpolatedString, RemoveTypes, Rule,
+};
+use darklua_core::{Configuration, Options, Resources};
 use encoder::encode_dom_into_writer;
 use rbx_dom_weak::WeakDom;
 use std::io::{BufWriter, Write};
@@ -68,6 +72,10 @@ struct GlobalOptions {
 		conflicts_with = "format"
 	)]
 	minify: bool,
+
+	/// Uses darklua_core to emit Lua 5.1 code
+	#[arg(short, long, default_value_t = false, global = true)]
+	compat: bool,
 }
 
 #[derive(Parser)]
@@ -132,7 +140,38 @@ fn write_to_luau_file<T: AsRef<Path>>(
 	source: String,
 	format: bool,
 	minify: bool,
+	lua_5_1_compat: bool,
 ) -> eyre::Result<()> {
+	let source = if lua_5_1_compat {
+		let resources = Resources::from_memory();
+		let input_path = Path::new("/src");
+
+		resources
+			.write("/src/main.lua", &source)
+			.map_err(|e| eyre!("failed to write into memory: {e:?}"))?;
+
+		let config = Configuration::empty()
+			.with_rule(Box::new(RemoveTypes::default()) as Box<dyn Rule>)
+			.with_rule(Box::new(RemoveFloorDivision::default()) as Box<dyn Rule>)
+			.with_rule(Box::new(RemoveCompoundAssignment::default()) as Box<dyn Rule>)
+			.with_rule(Box::new(RemoveContinue::default()) as Box<dyn Rule>)
+			.with_rule(Box::new(RemoveIfExpression::default()) as Box<dyn Rule>)
+			.with_rule(Box::new(RemoveInterpolatedString::default()) as Box<dyn Rule>)
+			.with_rule(Box::new(ConvertLuauNumber::default()) as Box<dyn Rule>);
+
+		darklua_core::process(
+			&resources,
+			Options::new(input_path).with_configuration(config),
+		)
+		.map_err(|e| eyre!("failed to process with darklua: {e}"))?;
+
+		resources
+			.get("/src/main.lua")
+			.map_err(|e| eyre!("failed to get output: {e:?}"))?
+	} else {
+		source
+	};
+
 	match (format, minify) {
 		(true, false) => {
 			// format
@@ -192,7 +231,11 @@ fn main() -> eyre::Result<()> {
 	color_eyre::install()?;
 
 	let args = Args::parse_from(wild::args());
-	let (format, minify) = (args.global_options.format, args.global_options.minify);
+	let (format, minify, compat) = (
+		args.global_options.format,
+		args.global_options.minify,
+		args.global_options.compat,
+	);
 
 	// Vec<(input, output)>
 	let mut inputs = vec![];
@@ -250,7 +293,13 @@ fn main() -> eyre::Result<()> {
 
 		// only one output, exit here
 		Command::GenerateFullDecoder { output } => {
-			write_to_luau_file(output, spec::generate_full_decoder(), format, minify)?;
+			write_to_luau_file(
+				output,
+				spec::generate_full_decoder(),
+				format,
+				minify,
+				compat,
+			)?;
 			return Ok(());
 		}
 	};
@@ -290,6 +339,7 @@ fn main() -> eyre::Result<()> {
 						spec::generate_specialized_decoder_for_dom(&weak_dom),
 						format,
 						minify,
+						compat,
 					)?;
 				}
 			}
@@ -304,6 +354,7 @@ fn main() -> eyre::Result<()> {
 					spec::generate_full_script(&weak_dom),
 					format,
 					minify,
+					compat,
 				)?;
 			}
 		}
@@ -317,6 +368,7 @@ fn main() -> eyre::Result<()> {
 					spec::generate_embeddable_script(&weak_dom),
 					format,
 					minify,
+					compat,
 				)?;
 			}
 		}
