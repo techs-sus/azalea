@@ -1,12 +1,18 @@
 //! Azalea's encoding logic
 
-use crate::spec::TypeId;
+use crate::{
+	emit::{Options, Requirements},
+	spec::TypeId,
+};
 use color_eyre::eyre::{self, OptionExt, WrapErr};
 use rbx_dom_weak::{
 	Instance, WeakDom,
 	types::{BinaryString, ContentType, Ref, Variant},
 };
-use std::{collections::HashMap, io::Write};
+use std::{
+	collections::{HashMap, HashSet},
+	io::Write,
+};
 
 /// NOTE: This function does not add any sort of type id.
 fn write_varstring(target: &mut impl Write, string: &[u8]) -> eyre::Result<()> {
@@ -544,12 +550,13 @@ fn write_variant(
 }
 
 /// Encodes an [`Instance`] alongside it's [`WeakDom`] with a referent map into a writer which implements [`Write`].
-pub fn encode_instance(
-	instance: &Instance,
-	weak_dom: &WeakDom,
-	referent_map: &mut HashMap<Ref, usize>,
+fn encode_instance<'a>(
+	instance: &'a Instance,
+	weak_dom: &'a WeakDom,
+	options: &mut Options<'a>,
 	buffer: &mut impl Write,
 ) -> eyre::Result<()> {
+	let referent_map = &mut options.referent_map;
 	write_variant(buffer, Variant::String(instance.name.clone()), referent_map)?;
 
 	write_nullstring(buffer, instance.class.as_str())
@@ -565,6 +572,43 @@ pub fn encode_instance(
 	)?;
 
 	for (property, value) in &instance.properties {
+		match instance.class.as_str() {
+			"Script" => options.generation_requirements |= Requirements::NEW_SCRIPT_FUNCTION,
+			"LocalScript" => options.generation_requirements |= Requirements::NEW_LOCAL_SCRIPT_FUNCTION,
+			"ModuleScript" => {
+				options.generation_requirements |= Requirements::NEW_MODULE_SCRIPT_FUNCTION;
+
+				if property == "Source"
+					&& options
+						.generation_requirements
+						.contains(Requirements::USE_NOVEL_INLINING)
+					&& let Variant::String(source) = value
+				{
+					// this won't panic because we write the instance ref before the loop and write_variant
+					// on a Ref means the referent_map is always populated with a usize for the Ref
+					options
+						.module_script_sources
+						.insert(*referent_map.get(&instance.referent()).unwrap(), source);
+
+					write_nullstring(buffer, "Source")
+						.wrap_err("failed writing Source property as nullstring")?;
+
+					buffer
+						.write_all(&[TypeId::None as u8])
+						.wrap_err("failed writing None type id for null Source")?;
+
+					continue;
+				}
+			}
+			"MeshPart" => options.generation_requirements |= Requirements::MESH_PART_SUPPORT,
+
+			_ => {}
+		}
+
+		options
+			.known_needed_type_ids
+			.extend(crate::spec::variant_to_type_id(value));
+
 		write_nullstring(buffer, property).wrap_err("failed writing property name as nullstring")?;
 		write_variant(buffer, value.to_owned(), referent_map)
 			.wrap_err("failed writing property variant")?;
@@ -576,18 +620,32 @@ pub fn encode_instance(
 			.get_by_ref(child.to_owned())
 			.ok_or_eyre("referent must exist")?;
 
-		encode_instance(child_instance, weak_dom, referent_map, buffer)?;
+		encode_instance(child_instance, weak_dom, options, buffer)?;
 	}
 
 	Ok(())
 }
 
 /// Encodes a [`WeakDom`] into a writer that implements the [`Write`] trait.
-pub fn encode_dom_into_writer(weak_dom: &WeakDom, mut writer: impl Write) -> eyre::Result<()> {
-	encode_instance(
-		weak_dom.root(),
-		weak_dom,
-		&mut HashMap::new(),
-		writer.by_ref(),
-	)
+/// You should be passing a base [`Requirements`] with explicit fields set if you want them.
+pub fn encode_dom_into_writer(
+	weak_dom: &'_ WeakDom,
+	mut writer: impl Write,
+	base_requirements: Requirements,
+) -> eyre::Result<Options<'_>> {
+	let mut options = Options {
+		generation_requirements: base_requirements,
+		known_needed_type_ids: HashSet::from([TypeId::String, TypeId::Ref, TypeId::None]),
+		module_script_sources: HashMap::new(),
+		referent_map: HashMap::new(),
+	};
+
+	encode_instance(weak_dom.root(), weak_dom, &mut options, writer.by_ref())?;
+
+	// This should be here rather than encode_instance to avoid performance penalties
+	if options.known_needed_type_ids.contains(&TypeId::CFrame) {
+		options.generation_requirements |= Requirements::CFRAME_LOOKUP_TABLE;
+	}
+
+	Ok(options)
 }

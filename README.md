@@ -14,6 +14,7 @@ cargo install --locked --git https://github.com/techs-sus/azalea.git --features=
 # nix shell github:techs-sus/azalea
 
 # -s is optional: you can specify a location for a specialized decoder to be generated
+# if using -s: this command is limiting, you should migrate to other commands such as generate-full-script.
 azalea encode -i input.rbxm -o output.bin -s specializedDecoder.luau -m
 
 # All examples below:
@@ -25,6 +26,12 @@ azalea encode -i input.rbxm -o output.bin -s specializedDecoder.luau -m
 
 # generates a full decoder: can decode any file under azalea's format
 azalea generate-full-decoder -o output.luau -f
+
+# Examples which generate tailored code for a model:
+# --novel: Must be used with --legacy flag, inlines ModuleScript sources and completely avoids loadstring.
+# --legacy: Enables any environment with NewScript and NewLocalScript to run. Shims require and NewModuleScript using loadstring.
+# --opensb: Enables OpenSB or any environment with NewScript, NewLocalScript, and NewModuleScript to run.
+# --studio: Enables Studio or any environment with Source access support to run.
 
 # generates a full script: input.rbxm must have a root ModuleScript (such as a MainModule)
 azalea generate-full-script -i input.rbxm -o output.luau -m

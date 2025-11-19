@@ -1,4 +1,5 @@
-use azalea::{encoder, spec};
+use azalea::emit::Requirements;
+use azalea::encoder::encode_dom_into_writer;
 use clap::{Parser, Subcommand};
 use color_eyre::eyre::{self, Context, bail, ensure, eyre};
 use darklua_core::rules::{
@@ -6,7 +7,6 @@ use darklua_core::rules::{
 	RemoveIfExpression, RemoveInterpolatedString, RemoveTypes, Rule,
 };
 use darklua_core::{Configuration, Options, Resources};
-use encoder::encode_dom_into_writer;
 use rbx_dom_weak::WeakDom;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -24,16 +24,22 @@ enum Command {
 		specialized_decoder: Option<PathBuf>,
 	},
 
-	/// Fully encodes a model file into a singular Roblox script.
+	/// Fully encodes a model file into a singular Roblox script, with optional formatting, minification and compat available.
 	GenerateFullScript {
 		#[clap(flatten)]
-		options: GenerateOptions,
+		generate_options: GenerateOptions,
+
+		#[clap(flatten)]
+		requirement_options: RequirementOptions,
 	},
 
 	/// Fully encodes a model file into an embeddable script, with optional formatting, minification and compat available.
 	GenerateEmbeddableScript {
 		#[clap(flatten)]
-		options: GenerateOptions,
+		generate_options: GenerateOptions,
+
+		#[clap(flatten)]
+		requirement_options: RequirementOptions,
 	},
 
 	/// Generates the full decoder into a file, with optional formatting, minification and compat available.
@@ -49,6 +55,25 @@ struct GenerateOptions {
 	/// Output luau file / directory
 	#[arg(short, long)]
 	output: PathBuf,
+}
+
+#[derive(clap::Args)]
+struct RequirementOptions {
+	/// Whether to support legacy environments or not
+	#[arg(long = "legacy", default_value_t = true)]
+	legacy_support: bool,
+
+	/// Whether to support studio environments or not
+	#[arg(long = "studio", default_value_t = false)]
+	studio_support: bool,
+
+	/// Whether to support OpenSB environments or not
+	#[arg(long = "opensb", default_value_t = true)]
+	opensb_support: bool,
+
+	/// Whether to use the Novel method which completely inlines ModuleScript sources. Overrides OpenSB's NewModuleScript support entirely.
+	#[arg(long = "novel", default_value_t = false)]
+	novel: bool,
 }
 
 #[derive(clap::Args)]
@@ -202,29 +227,26 @@ fn write_to_luau_file<T: AsRef<Path>>(
 	Ok(())
 }
 
-enum CommandType {
-	Encode {
-		specialized_decoder: Option<PathBuf>,
-	},
-	GenerateFullScript,
-	GenerateEmbeddableScript,
-	GenerateFullDecoder,
-}
+fn get_requirements_from_requirement_options(options: &RequirementOptions) -> Requirements {
+	let mut requirements = Requirements::empty();
 
-impl Command {
-	fn command_type(&self) -> CommandType {
-		match self {
-			Self::Encode {
-				specialized_decoder,
-				..
-			} => CommandType::Encode {
-				specialized_decoder: specialized_decoder.to_owned(),
-			},
-			Self::GenerateFullScript { .. } => CommandType::GenerateFullScript,
-			Self::GenerateEmbeddableScript { .. } => CommandType::GenerateEmbeddableScript,
-			Self::GenerateFullDecoder { .. } => CommandType::GenerateFullDecoder,
-		}
+	if options.legacy_support {
+		requirements.insert(Requirements::LEGACY_SUPPORT);
 	}
+
+	if options.studio_support {
+		requirements.insert(Requirements::STUDIO_SUPPORT);
+	}
+
+	if options.opensb_support {
+		requirements.insert(Requirements::OPENSB_SUPPORT);
+	}
+
+	if options.novel {
+		requirements.insert(Requirements::USE_NOVEL_INLINING);
+	}
+
+	requirements
 }
 
 fn main() -> eyre::Result<()> {
@@ -246,14 +268,18 @@ fn main() -> eyre::Result<()> {
 		Command::GenerateFullDecoder { .. } => "",
 	};
 
-	let command_type = args.command.command_type();
-
 	// ensure single input -> single file, and multiple inputs -> single directory
-	match args.command {
+	match &args.command {
 		// commands which can take multiple inputs
 		Command::Encode { options, .. }
-		| Command::GenerateFullScript { options }
-		| Command::GenerateEmbeddableScript { options } => {
+		| Command::GenerateFullScript {
+			generate_options: options,
+			..
+		}
+		| Command::GenerateEmbeddableScript {
+			generate_options: options,
+			..
+		} => {
 			let metadata = std::fs::metadata(&options.output);
 
 			inputs.reserve_exact(options.inputs.len());
@@ -268,7 +294,10 @@ fn main() -> eyre::Result<()> {
 					);
 				}
 
-				inputs.push((options.inputs.into_iter().next().unwrap(), options.output));
+				inputs.push((
+					options.inputs.iter().next().unwrap().clone(),
+					options.output.clone(),
+				));
 			} else {
 				ensure!(metadata.is_ok(), "output path does not exist");
 				ensure!(
@@ -276,7 +305,7 @@ fn main() -> eyre::Result<()> {
 					"output path is not a directory, but multiple inputs were passed"
 				);
 
-				for input in options.inputs {
+				for input in options.inputs.clone() {
 					let file = format!(
 						"{}.{file_extension}",
 						input
@@ -295,7 +324,7 @@ fn main() -> eyre::Result<()> {
 		Command::GenerateFullDecoder { output } => {
 			write_to_luau_file(
 				output,
-				spec::generate_full_decoder(),
+				azalea::emit::generate_full_decoder(),
 				format,
 				minify,
 				compat,
@@ -306,19 +335,27 @@ fn main() -> eyre::Result<()> {
 
 	let is_single_file = inputs.len() == 1;
 
-	match command_type {
-		CommandType::Encode {
+	match args.command {
+		Command::Encode {
 			specialized_decoder,
+			..
 		} => {
 			for (input, output) in inputs {
 				let weak_dom = read_dom_from_path(&input)?;
 				let mut output_writer =
 					BufWriter::new(File::create(&output).wrap_err("failed opening output file for writing")?);
 
-				encode_dom_into_writer(&weak_dom, &mut output_writer)
-					.with_context(|| format!("failed encoding dom into output path {}", output.display()))?;
+				let options = encode_dom_into_writer(
+					&weak_dom,
+					&mut output_writer,
+					Requirements::LEGACY_SUPPORT
+						| Requirements::OPENSB_SUPPORT
+						| Requirements::STUDIO_SUPPORT,
+				)
+				.with_context(|| format!("failed encoding dom into output path {}", output.display()))?;
 
 				// "It is critical to call flush before BufWriter<W> is dropped." - BufWriter documentation
+				// basically, it's so you can catch errors here and not ignore the errors implicitly in drop.
 				output_writer.flush()?;
 
 				if let Some(ref output) = specialized_decoder {
@@ -336,7 +373,7 @@ fn main() -> eyre::Result<()> {
 							);
 							output.join(file)
 						},
-						spec::generate_specialized_decoder_for_dom(&weak_dom),
+						azalea::emit::generate_with_options(options),
 						format,
 						minify,
 						compat,
@@ -345,13 +382,19 @@ fn main() -> eyre::Result<()> {
 			}
 		}
 
-		CommandType::GenerateFullScript => {
+		Command::GenerateFullScript {
+			requirement_options,
+			..
+		} => {
 			for (input, output) in inputs {
 				let weak_dom = read_dom_from_path(&input)?;
 
 				write_to_luau_file(
 					output,
-					spec::generate_full_script(&weak_dom),
+					azalea::emit::generate_full_script(
+						&weak_dom,
+						get_requirements_from_requirement_options(&requirement_options),
+					),
 					format,
 					minify,
 					compat,
@@ -359,13 +402,19 @@ fn main() -> eyre::Result<()> {
 			}
 		}
 
-		CommandType::GenerateEmbeddableScript => {
+		Command::GenerateEmbeddableScript {
+			requirement_options,
+			..
+		} => {
 			for (input, output) in inputs {
 				let weak_dom = read_dom_from_path(&input)?;
 
 				write_to_luau_file(
 					output,
-					spec::generate_embeddable_script(&weak_dom),
+					azalea::emit::generate_embeddable_script(
+						&weak_dom,
+						get_requirements_from_requirement_options(&requirement_options),
+					),
 					format,
 					minify,
 					compat,
@@ -373,7 +422,7 @@ fn main() -> eyre::Result<()> {
 			}
 		}
 
-		CommandType::GenerateFullDecoder => {
+		Command::GenerateFullDecoder { .. } => {
 			// this was already handled
 			unreachable!()
 		}

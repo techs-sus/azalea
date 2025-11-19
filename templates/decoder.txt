@@ -23,6 +23,10 @@
 	-- NewLocalScript not required
 {% endif %}
 
+{% if use_novel_inlining %}
+	local TrackModuleScript
+{% endif %}
+
 {% if let Some(new_module_script_shim) = new_module_script_shim %}
 	{{ new_module_script_shim }}
 {% else %}
@@ -138,11 +142,12 @@ local function decode(payloadBuffer: buffer)
 		end
 
 		local instance: Instance = if className == "DataModel" then Instance.new("Model")
-			{% if new_script_shim.is_some() %}elseif className == "Script" then NewScript(propertiesMap.Source or "", nilParentedInstance){% endif %}
-			{% if new_local_script_shim.is_some() %}elseif className == "LocalScript" then NewLocalScript(propertiesMap.Source or "", nilParentedInstance){% endif %}
-			{% if new_module_script_shim.is_some() %}elseif className == "ModuleScript" then NewModuleScript(propertiesMap.Source or "", nilParentedInstance){% endif %}
+			{% if new_script_shim.is_some() %}elseif className == "Script" then NewScript(propertiesMap.Source, nilParentedInstance){% endif %}
+			{% if new_local_script_shim.is_some() %}elseif className == "LocalScript" then NewLocalScript(propertiesMap.Source, nilParentedInstance){% endif %}
+			{% if new_module_script_shim.is_some() %}elseif className == "ModuleScript" then {% if use_novel_inlining %}TrackModuleScript(instanceReferent, NewModuleScript(propertiesMap.Source, nilParentedInstance)){% else %}NewModuleScript(propertiesMap.Source, nilParentedInstance){% endif %}{% endif %}
 			{% if mesh_part_exists %}elseif className == "MeshPart" then AssetService:CreateMeshPartAsync(propertiesMap.MeshContent){% endif %}
 			else Instance.new(className)
+			
 		referentTree[instanceReferent] = instance
 
 		instance.Name = name
