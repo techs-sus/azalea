@@ -13,7 +13,7 @@ macro_rules! count_tt {
 macro_rules! define_type_id {
 	($($name:ident = $value:expr,)+) => {
 		#[repr(u8)]
-		#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+		#[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 		pub enum TypeId {
 			$($name = ($value as u8)),*
 		}

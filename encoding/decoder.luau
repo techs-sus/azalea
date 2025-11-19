@@ -670,11 +670,12 @@ local function decode(payloadBuffer: buffer)
 
 		local instance: Instance = if className == "DataModel"
 			then Instance.new("Model")
-			elseif className == "Script" then NewScript(propertiesMap.Source or "", nilParentedInstance)
-			elseif className == "LocalScript" then NewLocalScript(propertiesMap.Source or "", nilParentedInstance)
-			elseif className == "ModuleScript" then NewModuleScript(propertiesMap.Source or "", nilParentedInstance)
+			elseif className == "Script" then NewScript(propertiesMap.Source, nilParentedInstance)
+			elseif className == "LocalScript" then NewLocalScript(propertiesMap.Source, nilParentedInstance)
+			elseif className == "ModuleScript" then NewModuleScript(propertiesMap.Source, nilParentedInstance)
 			elseif className == "MeshPart" then AssetService:CreateMeshPartAsync(propertiesMap.MeshContent)
 			else Instance.new(className)
+
 		referentTree[instanceReferent] = instance
 
 		instance.Name = name

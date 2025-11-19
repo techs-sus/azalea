@@ -202,7 +202,13 @@ fn generate_new_module_script_glue(options: &Options) -> String {
 /// You can create the [`Options`] yourself, or get it from [`crate::encoder::encode_dom_into_writer`].
 pub fn generate_with_options(options: Options) -> String {
 	let requirements = &options.generation_requirements;
-	let type_ids = &options.known_needed_type_ids;
+	let mut type_ids = options
+		.known_needed_type_ids
+		.iter()
+		.copied()
+		.collect::<Vec<_>>();
+
+	type_ids.sort_unstable();
 
 	let new_script_shim = requirements
 		.contains(Requirements::NEW_SCRIPT_FUNCTION)
