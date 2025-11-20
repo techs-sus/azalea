@@ -295,7 +295,7 @@ fn main() -> eyre::Result<()> {
 				}
 
 				inputs.push((
-					options.inputs.iter().next().unwrap().clone(),
+					options.inputs.first().unwrap().clone(),
 					options.output.clone(),
 				));
 			} else {
@@ -348,7 +348,8 @@ fn main() -> eyre::Result<()> {
 				let options = encode_dom_into_writer(
 					&weak_dom,
 					&mut output_writer,
-					Requirements::LEGACY_SUPPORT
+					Requirements::RETURN_DECODE
+						| Requirements::LEGACY_SUPPORT
 						| Requirements::OPENSB_SUPPORT
 						| Requirements::STUDIO_SUPPORT,
 				)
@@ -373,7 +374,7 @@ fn main() -> eyre::Result<()> {
 							);
 							output.join(file)
 						},
-						azalea::emit::generate_with_options(options),
+						azalea::emit::generate_with_options(&options),
 						format,
 						minify,
 						compat,

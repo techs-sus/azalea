@@ -533,33 +533,3 @@ decode_type_id! {
 	TypeId::ContentObject => "return nextUnsignedInteger()",
 	TypeId::ContentUri => "return Content.fromUri(nextNullstring())",
 }
-
-// this is apart of spec and not emit because its apart of the spec...
-// thank you rojo developers: https://dom.rojo.space/binary.html#cframe (god bless)
-pub const CFRAME_LOOKUP_TABLE: &str = r"local CFRAME_ID_LOOKUP_TABLE = table.freeze({
-	[0x02] = CFrame.fromEulerAnglesYXZ(0, 0, 0),
-	[0x03] = CFrame.fromEulerAnglesYXZ(math.rad(90), 0, 0),
-	[0x05] = CFrame.fromEulerAnglesYXZ(0, math.rad(180), math.rad(180)),
-	[0x06] = CFrame.fromEulerAnglesYXZ(math.rad(-90), 0, 0),
-	[0x07] = CFrame.fromEulerAnglesYXZ(0, math.rad(180), math.rad(90)),
-	[0x09] = CFrame.fromEulerAnglesYXZ(0, math.rad(90), math.rad(90)),
-	[0x0a] = CFrame.fromEulerAnglesYXZ(0, 0, math.rad(90)),
-	[0x0c] = CFrame.fromEulerAnglesYXZ(0, math.rad(-90), math.rad(90)),
-	[0x0d] = CFrame.fromEulerAnglesYXZ(math.rad(-90), math.rad(-90), 0),
-	[0x0e] = CFrame.fromEulerAnglesYXZ(math.rad(0), math.rad(-90), 0),
-	[0x10] = CFrame.fromEulerAnglesYXZ(math.rad(90), math.rad(-90), 0),
-	[0x11] = CFrame.fromEulerAnglesYXZ(math.rad(0), math.rad(90), 180),
-
-	[0x14] = CFrame.fromEulerAnglesYXZ(0, math.rad(180), 0),
-	[0x15] = CFrame.fromEulerAnglesYXZ(math.rad(-90), math.rad(-180), 0),
-	[0x17] = CFrame.fromEulerAnglesYXZ(0, 0, math.rad(180)),
-	[0x18] = CFrame.fromEulerAnglesYXZ(math.rad(90), math.rad(180), 0),
-	[0x19] = CFrame.fromEulerAnglesYXZ(0, 0, math.rad(-90)),
-	[0x1b] = CFrame.fromEulerAnglesYXZ(0, math.rad(-90), math.rad(-90)),
-	[0x1c] = CFrame.fromEulerAnglesYXZ(0, math.rad(-180), math.rad(-90)),
-	[0x1e] = CFrame.fromEulerAnglesYXZ(0, math.rad(90), math.rad(-90)),
-	[0x1f] = CFrame.fromEulerAnglesYXZ(math.rad(90), math.rad(90), 0),
-	[0x20] = CFrame.fromEulerAnglesYXZ(0, math.rad(90), 0),
-	[0x22] = CFrame.fromEulerAnglesYXZ(math.rad(-90), math.rad(90), 0),
-	[0x23] = CFrame.fromEulerAnglesYXZ(0, math.rad(-90), math.rad(180)),
-})";

@@ -6,54 +6,51 @@ use rbx_dom_weak::types::Ref;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
-use crate::spec::{
-	ALL_TYPE_IDS, CFRAME_LOOKUP_TABLE, TypeId, get_luau_for_type_ids,
-	get_luau_variant_decoder_for_ids,
-};
+use crate::spec::{ALL_TYPE_IDS, TypeId, get_luau_for_type_ids, get_luau_variant_decoder_for_ids};
 
 bitflags::bitflags! {
 	/// Implicit requirements can be set by consumers of the crate, but they will usually be automatically generated.
 	/// Instead, set explicit requirements, as they mainly control the behavior of the generated code, and are not automatically generated.
-	#[repr(transparent)]
+	// #[repr(transparent)]
 	#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-	pub struct Requirements: u8 {
+	pub struct Requirements: u16 {
 		/// Enable this if you want to decode anything which references a CFrame value.
 		///
 		/// This is an IMPLICIT requirement.
-		const CFRAME_LOOKUP_TABLE = 0;
+		const CFRAME_LOOKUP_TABLE = 1;
 		/// Enable this if you want to properly decode Script instances.
 		///
 		/// This is an IMPLICIT requirement.
-		const NEW_SCRIPT_FUNCTION = 1;
+		const NEW_SCRIPT_FUNCTION = 2;
 		/// Enable this if you want to properly decode LocalScript instances.
 		///
 		/// This is an IMPLICIT requirement.
-		const NEW_LOCAL_SCRIPT_FUNCTION = 2;
+		const NEW_LOCAL_SCRIPT_FUNCTION = 4;
 		/// Enable this if you want to properly decode ModuleScript instances.
 		///
 		/// This is an IMPLICIT requirement.
-		const NEW_MODULE_SCRIPT_FUNCTION = 3;
+		const NEW_MODULE_SCRIPT_FUNCTION = 8;
 
 		/// Enable this if you want to properly decode MeshPart instances.
 		///
 		/// This is an IMPLICIT requirement.
-		const MESH_PART_SUPPORT = 4;
+		const MESH_PART_SUPPORT = 16;
 
 		/* if NEW_SCRIPT_FUNCTION or NEW_LOCAL_SCRIPT_FUNCTION or NEW_MODULE_SCRIPT_FUNCTION are enabled, one of the below MUST be enabled */
 
 		/// Enable this if you want to run Azalea generated scripts in the command bar.
 		///
-		/// This is a EXPLICIT requirement.
-		const STUDIO_SUPPORT = 5;
+		/// This is an EXPLICIT requirement.
+		const STUDIO_SUPPORT = 32;
 		/// Enable this if you want to run Azalea generated scripts in a compliant OpenSB implementation which supports NewScript, NewLocalScript and NewModuleScript.
 		///
-		/// This is a EXPLICIT requirement.
-		const OPENSB_SUPPORT = 6;
+		/// This is an EXPLICIT requirement.
+		const OPENSB_SUPPORT = 64;
 		/// Enable this if you want to run Azalea generated scripts in an environment which supports NewScript, NewLocalScript but NOT NewModuleScript.
 		/// We shim require, and you'll need to use the shimmed version for this to be useful at all.
 		///
-		/// This is a EXPLICIT requirement.
-		const LEGACY_SUPPORT = 7;
+		/// This is an EXPLICIT requirement.
+		const LEGACY_SUPPORT = 128;
 
 		/// The Novel Method (avoid loadstring, inline) only applies to [`Self::LEGACY_SUPPORT`].
 		///
@@ -61,8 +58,13 @@ bitflags::bitflags! {
 		/// Avoids performance regressions by using an explicit require and script upvalue in chunk functions.
 		/// Require is therefore still shimmed and all rules from [`Self::LEGACY_SUPPORT`] apply.
 		///
-		/// This is a EXPLICIT requirement.
-		const USE_NOVEL_INLINING = 8;
+		/// This is an EXPLICIT requirement.
+		const USE_NOVEL_INLINING = 256;
+
+		/// Controls where a `return decode` is emitted. Be careful setting this.
+		///
+		/// This is an EXPLICIT requirement.
+		const RETURN_DECODE = 512;
 	}
 }
 
@@ -77,7 +79,7 @@ pub struct Options<'options> {
 #[template(path = "decoder.txt")]
 struct DecoderTemplate<'a> {
 	type_id_table: &'a str,
-	cframe_lookup_table: Option<&'a str>,
+	cframe_lookup_table_present: bool,
 	new_script_shim: Option<&'a str>,
 	new_local_script_shim: Option<&'a str>,
 	new_module_script_shim: Option<&'a str>,
@@ -85,9 +87,10 @@ struct DecoderTemplate<'a> {
 
 	mesh_part_exists: bool,
 	use_novel_inlining: bool,
+	return_decode: bool,
 }
 
-fn generate_new_script_glue(requirements: &Requirements) -> String {
+fn generate_new_script_glue(requirements: Requirements) -> String {
 	let mut exprs = vec![];
 	if requirements.contains(Requirements::OPENSB_SUPPORT)
 		|| requirements.contains(Requirements::LEGACY_SUPPORT)
@@ -104,7 +107,7 @@ fn generate_new_script_glue(requirements: &Requirements) -> String {
 
 		return script
 	end))"#,
-		)
+		);
 	}
 
 	format!(
@@ -113,7 +116,7 @@ fn generate_new_script_glue(requirements: &Requirements) -> String {
 	)
 }
 
-fn generate_new_local_script_glue(requirements: &Requirements) -> String {
+fn generate_new_local_script_glue(requirements: Requirements) -> String {
 	let mut exprs = Vec::with_capacity(2);
 	if requirements.contains(Requirements::OPENSB_SUPPORT)
 		|| requirements.contains(Requirements::LEGACY_SUPPORT)
@@ -130,7 +133,7 @@ fn generate_new_local_script_glue(requirements: &Requirements) -> String {
 
 		return script
 	end))"#,
-		)
+		);
 	}
 
 	format!(
@@ -151,12 +154,12 @@ fn generate_new_module_script_glue(options: &Options) -> String {
 			for (ref_id, source) in &options.module_script_sources {
 				writeln!(
 					output,
-					"[{ref_id}] = {{ cache = MODULE_UNCACHED_LVALUE, load = function(require: Require, script: ModuleScript)\n{source}\nend }},"
+					"[{ref_id}] = {{ cache = MODULE_UNCACHED_LVALUE, load = function(script: ModuleScript)\n{source}\nend }},"
 				).expect("failed writing module def");
 			}
 
-			exprs
-				.push(include_str!("luau/shims/LegacyNovelRequire.luau").replace("--@generate", &output));
+			/* skip other code generation because novel model isn't compatible anyway */
+			return include_str!("luau/shims/LegacyNovelRequire.luau").replace("--@generate", &output);
 		}
 
 		false => {
@@ -180,14 +183,17 @@ fn generate_new_module_script_glue(options: &Options) -> String {
 		return script
 	end))"#
 						.to_string(),
-				)
+				);
 			}
 
 			if options
 				.generation_requirements
 				.contains(Requirements::LEGACY_SUPPORT)
 			{
-				exprs.push(include_str!("luau/shims/LegacyNormalRequire.luau").to_string());
+				exprs.push(format!(
+					"nil\n{};",
+					include_str!("luau/shims/LegacyNormalRequire.luau")
+				));
 			}
 		}
 	}
@@ -200,8 +206,8 @@ fn generate_new_module_script_glue(options: &Options) -> String {
 
 /// Given an [`Options`], a specialized decoder will be generated for you.
 /// You can create the [`Options`] yourself, or get it from [`crate::encoder::encode_dom_into_writer`].
-pub fn generate_with_options(options: Options) -> String {
-	let requirements = &options.generation_requirements;
+pub fn generate_with_options(options: &Options) -> String {
+	let requirements = options.generation_requirements;
 	let mut type_ids = options
 		.known_needed_type_ids
 		.iter()
@@ -223,9 +229,7 @@ pub fn generate_with_options(options: Options) -> String {
 		.then(|| generate_new_module_script_glue(&options));
 
 	let template = DecoderTemplate {
-		cframe_lookup_table: requirements
-			.contains(Requirements::CFRAME_LOOKUP_TABLE)
-			.then_some(CFRAME_LOOKUP_TABLE),
+		cframe_lookup_table_present: requirements.contains(Requirements::CFRAME_LOOKUP_TABLE),
 		type_id_table: &get_luau_for_type_ids(type_ids.iter()),
 		new_script_shim: new_script_shim.as_deref(),
 		new_local_script_shim: new_local_script_shim.as_deref(),
@@ -233,16 +237,18 @@ pub fn generate_with_options(options: Options) -> String {
 		variant_decoder_table: &get_luau_variant_decoder_for_ids(type_ids.iter()),
 		mesh_part_exists: requirements.contains(Requirements::MESH_PART_SUPPORT),
 		use_novel_inlining: requirements.contains(Requirements::USE_NOVEL_INLINING),
+		return_decode: requirements.contains(Requirements::RETURN_DECODE),
 	};
 
 	template.render().unwrap()
 }
 
 /// A full decoder requires ModuleScript's to have a Source property.
+///
 /// You must FULLY encode models (include the Source property!) for them to work with this decoder.
-/// Notably, models generated with [`Requirements::AVOID_LOADSTRING`] exclude the Source property.
+/// Notably, models generated with [`Requirements::USE_NOVEL_INLINING`] exclude the Source property.
 pub fn generate_full_decoder() -> String {
-	generate_with_options(Options {
+	generate_with_options(&Options {
 		generation_requirements: Requirements::all().difference(Requirements::USE_NOVEL_INLINING),
 		known_needed_type_ids: HashSet::from(ALL_TYPE_IDS),
 		module_script_sources: HashMap::new(),
@@ -288,6 +294,11 @@ fn internal_create_script(weak_dom: &WeakDom, base_requirements: Requirements) -
 	// output.push_str(&BASE64_STANDARD.encode(&zstd_out));
 	// output.push_str("\"}]])\n");
 
+	// embed decoder
+	// output.push_str("local decode = (function()\n");
+	output.push_str(&generate_with_options(&options));
+	// output.push_str("\nend)()\n");
+
 	// SAFETY: Base122 (and by extension, Base123) encoded data is valid UTF-8.
 	let base122 = crate::base122::base123_encode(&zstd_out);
 	output.push_str(
@@ -296,20 +307,15 @@ fn internal_create_script(weak_dom: &WeakDom, base_requirements: Requirements) -
 		}),
 	);
 
-	// embed decoder
-	output.push_str("local decode = (function()\n");
-	output.push_str(&generate_with_options(options));
-	output.push_str("\nend)()\n");
-
 	output
 }
 
 #[cfg(feature = "base122")]
 pub fn generate_embeddable_script(weak_dom: &WeakDom, base_requirements: Requirements) -> String {
-	let mut output = internal_create_script(weak_dom, base_requirements);
-	output.push_str("return decode(payloadBuffer):GetChildren()[1]\n");
-
-	output
+	format!(
+		"{}\nreturn decode(payloadBuffer):GetChildren()[1]\n",
+		internal_create_script(weak_dom, base_requirements)
+	)
 }
 
 #[cfg(feature = "base122")]
@@ -327,10 +333,8 @@ pub fn generate_full_script(weak_dom: &WeakDom, base_requirements: Requirements)
 		);
 	};
 
-	let mut output = internal_create_script(weak_dom, base_requirements);
-
-	// require the root ModuleScript
-	output.push_str("return require(decode(payloadBuffer):GetChildren()[1])\n");
-
-	output
+	format!(
+		"{}\nreturn require(decode(payloadBuffer):GetChildren()[1])\n",
+		internal_create_script(weak_dom, base_requirements)
+	)
 }

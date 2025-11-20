@@ -269,6 +269,8 @@ fn write_variant(
 			/*
 				* you can't really represent true i64's in lua
 				* so we try representing them as i32's first, and fallback to f64
+				* warning: casting `i64` to `f64` causes a loss of precision (`i64` is 64 bits wide, but `f64`'s mantissa is only 52 bits wide)
+				* ^ this is fine, luau numbers are f64's anyway
 			 */
 			Ok(int) => write_variant(target, Variant::Int32(int), referent_map)?,
 			Err(_) => write_variant(target, Variant::Float64(int as f64), referent_map)?,
@@ -600,6 +602,7 @@ fn encode_instance<'a>(
 					continue;
 				}
 			}
+
 			"MeshPart" => options.generation_requirements |= Requirements::MESH_PART_SUPPORT,
 
 			_ => {}

@@ -1,30 +1,29 @@
-(function()
+do
+	local MODULE_UNCACHED_LVALUE = newproxy(true)
+	getmetatable(MODULE_UNCACHED_LVALUE).__metatable =
+		"This metatable denotes an Uncached ModuleScript in the Novel Technique."
+
+	local REF_TO_MODULE = table.freeze({
+		--@generate
+	})
+
+	local MODULE_SCRIPT_TO_REF: { [ModuleScript]: Ref } = {} -- can't be frozen
+
 	local oldRequire = require
 
-	type Require = (unknown) -> unknown
-
 	type Module = {
-		load: (require: Require, script: ModuleScript) -> unknown,
+		load: (script: ModuleScript) -> unknown,
 		cache: unknown,
 	}
 
 	type Ref = number
 
-	local MODULE_UNCACHED_LVALUE = newproxy(true)
-	getmetatable(MODULE_UNCACHED_LVALUE).__metatable =
-		"This metatable denotes an Uncached ModuleScript in the Novel Technique."
-
-	local REF_TO_MODULE: { [Ref]: Module } = {
-		--@generate
-	} -- should be frozen
-	local MODULE_SCRIPT_TO_REF: { [ModuleScript]: Ref } = {} -- can't be frozen
-
-	TrackModuleScript = function(ref: Ref, moduleScript: ModuleScript)
+	function TrackModuleScript(ref: Ref, moduleScript: ModuleScript)
 		MODULE_SCRIPT_TO_REF[moduleScript] = ref
 		return moduleScript
 	end
 
-	local function NewModuleScript(source: nil, parent: Instance?)
+	function NewModuleScript(source: nil, parent: Instance?)
 		assert(type(source) == "nil", "first argument (source) should be nil because of Novel technique")
 		assert(
 			typeof(parent) == "Instance" or parent == nil,
@@ -51,7 +50,7 @@
 
 			if cache == MODULE_UNCACHED_LVALUE then
 				local success = false
-				success, cache = pcall(module.load, require, value)
+				success, cache = pcall(module.load, value)
 
 				if not success then
 					return error(`Requested module experienced an error whilst loading: {cache}`, 2)
@@ -65,6 +64,4 @@
 
 		return assert(oldRequire, "require is not available")(value :: any)
 	end
-
-	return NewModuleScript
-end)()
+end

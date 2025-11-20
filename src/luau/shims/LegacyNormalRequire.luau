@@ -1,4 +1,4 @@
-(function()
+do
 	local oldRequire = require
 
 	type UncachedModule = {
@@ -29,7 +29,7 @@
 		})
 	end
 
-	local function NewModuleScript(source: string, parent: Instance?, ...)
+	function NewModuleScript(source: string, parent: Instance?, ...)
 		assert(type(source) == "string", "first argument (source) must be of type string")
 		assert(typeof(parent) == "Instance" or parent == nil, "second optional argument (parent) must be of type Instance?")
 
@@ -80,6 +80,4 @@
 
 		return assert(oldRequire, "require is not available")(value :: any)
 	end
-
-	return NewModuleScript
-end)()
+end
