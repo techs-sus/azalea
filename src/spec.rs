@@ -529,7 +529,7 @@ decode_type_id! {
 		loc += 20
 		return PhysicalProperties.new(density, friction, elasticity, frictionWeight, elasticityWeight)
 	"#,
-	TypeId::ContentNone => "loc += 1; return Content.none",
+	TypeId::ContentNone => "return Content.none",
 	TypeId::ContentObject => "return nextUnsignedInteger()",
 	TypeId::ContentUri => "return Content.fromUri(nextNullstring())",
 }
