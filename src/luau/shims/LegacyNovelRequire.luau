@@ -38,7 +38,7 @@ do
 
 	function require(value): unknown
 		if typeof(value) == "Instance" then
-			local module = assert(
+			local module: Module = assert(
 				REF_TO_MODULE[assert(
 					MODULE_SCRIPT_TO_REF[value],
 					"failed lookup in ModuleScript -> Ref table, maybe TrackModuleScript wasn't called?"
@@ -49,12 +49,19 @@ do
 			local cache = module.cache
 
 			if cache == MODULE_UNCACHED_LVALUE then
-				local success = false
-				success, cache = pcall(module.load, value)
+				-- using pcall leads to weird bugs
+				-- > works perfectly in OpenSB
+				-- > mysterious errors in lua sandbox
+				-- > C stack overflow in lua assembling
 
-				if not success then
-					return error(`Requested module experienced an error whilst loading: {cache}`, 2)
-				end
+				-- local success = true
+				-- success, cache = pcall(module.load, value)
+
+				-- if not success then
+				-- 	return error(`Requested module experienced an error whilst loading: {cache}`, 2)
+				-- end
+
+				cache = module.load(value)
 
 				module.cache = cache
 			end
