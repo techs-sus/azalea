@@ -1,5 +1,5 @@
 {
-	"generator": "dense",
+	"generator": { "name": "dense", "column_span": 9999999 },
 	"bundle": {
 		"modules_identifier": "__DARKLUA_BUNDLE_MODULES",
 		"excludes": [],
@@ -11,6 +11,8 @@
 		"remove_comments",
 		"remove_spaces",
 		"remove_types",
+		"convert_function_to_assignment",
+		"convert_local_function_to_assign",
 		{
 			"rule": "rename_variables",
 			"globals": ["$default", "$roblox"]

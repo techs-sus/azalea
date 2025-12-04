@@ -19,10 +19,41 @@ local kIllegals = {
 
 local kShortened = 0b111 -- uses the illegal index to signify the last two-byte char encodes <= 7 bits.
 
+local function getBufferSize(input: string)
+	-- 87.5% efficiency
+	-- local decoded = buffer.create(math.floor(string.len(input) * 7 / 8))
+	local decodedIndex = 0
+	local bitOfByte = 0
+
+	local function push7(byte: number)
+		byte = bit32.lshift(byte, 1)
+		bitOfByte += 7
+		if bitOfByte >= 8 then
+			decodedIndex += 1
+			bitOfByte -= 8
+		end
+	end
+
+	for _, character in utf8.codes(input) do
+		if character > 127 then
+			local illegalIndex = bit32.band(bit32.rshift(character, 8), 7)
+			if illegalIndex ~= kShortened then
+				push7(kIllegals[illegalIndex + 1])
+			end
+			push7(bit32.band(character, 127))
+		else
+			push7(character)
+		end
+	end
+
+	return decodedIndex
+end
+
 -- Returns the decoded buffer and the actual, usable length of the buffer.
 local function decode(input: string): (buffer, number)
 	-- 87.5% efficiency
-	local decoded = buffer.create(string.len(input))
+	-- math.floor(string.len(input) * 7 / 8)?
+	local decoded = buffer.create(getBufferSize(input))
 	local decodedIndex = 0
 	local currentByte = 0
 	local bitOfByte = 0
