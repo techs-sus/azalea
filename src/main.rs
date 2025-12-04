@@ -60,7 +60,7 @@ struct GenerateOptions {
 #[derive(clap::Args)]
 struct RequirementOptions {
 	/// Whether to support legacy environments or not
-	#[arg(long = "legacy", default_value_t = true)]
+	#[arg(long = "legacy", default_value_t = false)]
 	legacy_support: bool,
 
 	/// Whether to support studio environments or not
