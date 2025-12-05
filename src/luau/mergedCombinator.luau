@@ -23,35 +23,34 @@ local function decode(input: string): buffer
 	-- 87.5% efficiency
 	local decodedIndex = 0
 	local bitOfByte = 0
+	-- this is "encountered" in the O(n) first try
 	local currentByte = 0
 
-	local function push7_forSize(byte: number)
-		byte = bit32_lshift(byte, 1)
-		bitOfByte += 7
-		if bitOfByte >= 8 then
-			decodedIndex += 1
-			bitOfByte -= 8
-		end
-	end
-
-	for _, character in utf8.codes(input) do
+	for _, character: number in utf8.codes(input) do
 		if character > 127 then
 			local illegalIndex = bit32_band(bit32_rshift(character, 8), 7)
-			if illegalIndex ~= 7 then
-				push7_forSize(kIllegals[illegalIndex + 1])
+			currentByte += if illegalIndex ~= 0b111 then 1 else 0
+		end
+
+		currentByte += 1
+
+		while currentByte ~= 0 do
+			bitOfByte += 7
+			if bitOfByte >= 8 then
+				decodedIndex += 1
+				bitOfByte -= 8
 			end
-			push7_forSize(bit32_band(character, 127))
-		else
-			push7_forSize(character)
+
+			currentByte -= 1
 		end
 	end
 
-	-- math.floor(string.len(input) * 7 / 8)?
 	local decoded = buffer.create(decodedIndex)
 
 	-- reset state from O(n) first try
 	decodedIndex = 0
 	bitOfByte = 0
+	currentByte = 0
 
 	local function push7(byte: number)
 		byte = bit32_lshift(byte, 1)
