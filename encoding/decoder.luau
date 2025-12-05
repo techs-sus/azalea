@@ -594,7 +594,6 @@ local function decode(payloadBuffer: buffer)
 			return Font.new(family, weightEnum, styleEnum)
 		end,
 		[TYPE_ID.ContentNone] = function()
-			loc += 1
 			return Content.none
 		end,
 		[TYPE_ID.ContentObject] = function()
@@ -623,11 +622,11 @@ local function decode(payloadBuffer: buffer)
 	type Ref = number
 
 	local rootReferent: Ref?
-	local referentTree: { [string]: Instance } = {}
+	local referentTree: { [Ref]: Instance } = {}
 
 	-- late properties must be applied after the entire tree is decoded
 	-- index signature: latePropertyMap[referent][propertyName] = propertyValue
-	local latePropertiesMap: { [Ref]: { [string]: string } } = {}
+	local latePropertiesMap: { [Ref]: { [string]: { variant: Ref, isContentObject: boolean } } } = {}
 
 	local function decodeInstance()
 		local name: string = nextVariant({ TYPE_ID.String })
