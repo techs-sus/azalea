@@ -12,7 +12,7 @@ do
 	local oldRequire = require
 
 	type Module = {
-		load: (script: ModuleScript) -> unknown,
+		load: (script: ModuleScript) -> () -> unknown,
 		cache: unknown,
 	}
 
@@ -24,7 +24,7 @@ do
 	end
 
 	function NewModuleScript(source: nil, parent: Instance?)
-		assert(type(source) == "nil", "first argument (source) should be nil because of Novel technique")
+		assert(type(source) == "nil", "first argument (source) should be nil because the Novel technique inlines sources")
 		assert(
 			typeof(parent) == "Instance" or parent == nil,
 			"second optional argument (parent) must be of type Instance if provided"
@@ -49,19 +49,20 @@ do
 			local cache = module.cache
 
 			if cache == MODULE_UNCACHED_LVALUE then
-				-- using pcall leads to weird bugs
-				-- > works perfectly in OpenSB
-				-- > mysterious errors in lua sandbox
-				-- > C stack overflow in lua assembling
+				-- we cannot provide perfect errors with pcall:
+				-- -> works perfectly in OpenSB
+				-- -> mysterious errors in lua sandbox
+				-- -> C stack overflow in lua assembling
 
 				-- local success = true
-				-- success, cache = pcall(module.load, value)
+				-- success, cache = pcall(module.load(value))
 
 				-- if not success then
 				-- 	return error(`Requested module experienced an error whilst loading: {cache}`, 2)
 				-- end
 
-				cache = module.load(value)
+				-- we silently ignore >1 return values
+				cache = module.load(value)()
 
 				module.cache = cache
 			end

@@ -154,7 +154,7 @@ fn generate_new_module_script_glue(options: &Options) -> String {
 			for (ref_id, source) in &options.module_script_sources {
 				writeln!(
 					output,
-					"[{ref_id}] = {{ cache = MODULE_UNCACHED_LVALUE, load = function(script: ModuleScript)\n{source}\nend }},"
+					"[{ref_id}] = {{ cache = MODULE_UNCACHED_LVALUE, load = function(script: ModuleScript) return function()\n{source}\nend end }},"
 				).expect("failed writing module def");
 			}
 
