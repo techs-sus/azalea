@@ -106,6 +106,7 @@ define_type_id! {
 	ContentUri = 37,
 }
 
+#[must_use]
 pub fn variant_to_type_id(variant: &Variant) -> Vec<TypeId> {
 	match variant {
 		Variant::Axes(..) => vec![TypeId::Axes],

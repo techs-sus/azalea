@@ -206,6 +206,7 @@ fn generate_new_module_script_glue(options: &Options) -> String {
 
 /// Given an [`Options`], a specialized decoder will be generated for you.
 /// You can create the [`Options`] yourself, or get it from [`crate::encoder::encode_dom_into_writer`].
+#[must_use]
 pub fn generate_with_options(options: &Options) -> String {
 	let requirements = options.generation_requirements;
 	let mut type_ids = options
@@ -226,7 +227,7 @@ pub fn generate_with_options(options: &Options) -> String {
 
 	let new_module_script_shim = requirements
 		.contains(Requirements::NEW_MODULE_SCRIPT_FUNCTION)
-		.then(|| generate_new_module_script_glue(&options));
+		.then(|| generate_new_module_script_glue(options));
 
 	let template = DecoderTemplate {
 		cframe_lookup_table_present: requirements.contains(Requirements::CFRAME_LOOKUP_TABLE),
@@ -247,6 +248,7 @@ pub fn generate_with_options(options: &Options) -> String {
 ///
 /// You must FULLY encode models (include the Source property!) for them to work with this decoder.
 /// Notably, models generated with [`Requirements::USE_NOVEL_INLINING`] exclude the Source property.
+#[must_use]
 pub fn generate_full_decoder() -> String {
 	generate_with_options(&Options {
 		generation_requirements: Requirements::all().difference(Requirements::USE_NOVEL_INLINING),
@@ -283,7 +285,7 @@ fn internal_create_script(
 			.expect("failed encoding dom");
 
 	let mut zstd_out = Vec::with_capacity(encoded_dom.len() / 2);
-	let mut zstd_encoder = zstd::Encoder::new(&mut zstd_out, level as i32).unwrap();
+	let mut zstd_encoder = zstd::Encoder::new(&mut zstd_out, i32::from(level)).unwrap();
 	zstd_encoder.include_checksum(true).unwrap();
 	zstd_encoder.include_contentsize(true).unwrap();
 	zstd_encoder
@@ -315,6 +317,7 @@ fn internal_create_script(
 }
 
 #[cfg(feature = "base122")]
+#[must_use]
 pub fn generate_embeddable_script(
 	weak_dom: &WeakDom,
 	base_requirements: Requirements,
@@ -327,6 +330,7 @@ pub fn generate_embeddable_script(
 }
 
 #[cfg(feature = "base122")]
+#[must_use]
 pub fn generate_full_script(
 	weak_dom: &WeakDom,
 	base_requirements: Requirements,

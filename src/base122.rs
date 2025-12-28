@@ -24,7 +24,7 @@ pub use hybrid_array;
 pub const BASE123_ILLEGAL_BYTES: [u8; 5] = [0, 10, 13, 34, 92];
 
 /// The Base122 set is optimal for usage in data: URI's; so an ampersand is included.
-/// See https://github.com/kevinAlbs/Base122/tree/master for more details.
+/// See <https://github.com/kevinAlbs/Base122/tree/master> for more details.
 pub const BASE122_ILLEGAL_BYTES: [u8; 6] = [0, 10, 13, 34, 38, 92];
 
 const SHORTENED: u8 = 0b111;

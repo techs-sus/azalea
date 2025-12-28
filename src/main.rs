@@ -345,7 +345,7 @@ fn main() -> eyre::Result<()> {
 			)?;
 			return Ok(());
 		}
-	};
+	}
 
 	let is_single_file = inputs.len() == 1;
 
