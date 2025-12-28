@@ -19,7 +19,7 @@ azalea encode -i input.rbxm -o output.bin -s specializedDecoder.luau -m
 # -i = --input (can be multiple files, or one file, REQUIRED)
 # -o = --output (either a file, or a directory (then multiple inputs must be present), REQUIRED)
 # -f = --format (with stylua, optional)
-# -m = --minify (with darklua, optional)
+# -m = --minify (with darklua, optional): WARNING! Darklua is extra cautious when emitting strings and explodes file size.
 # -c = --compat (makes code generated Lua 5.1 compatible; done via darklua, optional)
 
 # generates a full decoder: can decode any file under azalea's format
@@ -28,8 +28,9 @@ azalea generate-full-decoder -o output.luau -f
 # Examples which generate tailored code for a model:
 # --novel: Must be used with --legacy flag, inlines ModuleScript sources and completely avoids loadstring.
 # --legacy: Enables any environment with NewScript and NewLocalScript to run. Shims require and NewModuleScript using loadstring.
-# --opensb: Enables OpenSB or any environment with NewScript, NewLocalScript, and NewModuleScript to run.
+# (default) --opensb: Enables OpenSB or any environment with NewScript, NewLocalScript, and NewModuleScript to run.
 # --studio: Enables Studio or any environment with Source access support to run.
+# (optional, defaults to 11) --level: Zstandard compression level, 1 to 22; 22 produces the smallest output but is the slowest
 
 # generates a full script: input.rbxm must have a root ModuleScript (such as a MainModule)
 azalea generate-full-script -i input.rbxm -o output.luau -m

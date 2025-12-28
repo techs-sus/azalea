@@ -257,7 +257,11 @@ pub fn generate_full_decoder() -> String {
 }
 
 #[cfg(feature = "base122")]
-fn internal_create_script(weak_dom: &WeakDom, base_requirements: Requirements) -> String {
+fn internal_create_script(
+	weak_dom: &WeakDom,
+	base_requirements: Requirements,
+	level: u8,
+) -> String {
 	/*
 		* in a perfect world, we would be able to directly wrap writers around each other as below:
 		* [[azalea encoder] -> [zstd writer] -> [base64/base122 writer]]
@@ -279,7 +283,7 @@ fn internal_create_script(weak_dom: &WeakDom, base_requirements: Requirements) -
 			.expect("failed encoding dom");
 
 	let mut zstd_out = Vec::with_capacity(encoded_dom.len() / 2);
-	let mut zstd_encoder = zstd::Encoder::new(&mut zstd_out, 22).unwrap();
+	let mut zstd_encoder = zstd::Encoder::new(&mut zstd_out, level as i32).unwrap();
 	zstd_encoder.include_checksum(true).unwrap();
 	zstd_encoder.include_contentsize(true).unwrap();
 	zstd_encoder
@@ -311,15 +315,23 @@ fn internal_create_script(weak_dom: &WeakDom, base_requirements: Requirements) -
 }
 
 #[cfg(feature = "base122")]
-pub fn generate_embeddable_script(weak_dom: &WeakDom, base_requirements: Requirements) -> String {
+pub fn generate_embeddable_script(
+	weak_dom: &WeakDom,
+	base_requirements: Requirements,
+	level: u8,
+) -> String {
 	format!(
 		"{}\nreturn decode(payloadBuffer):GetChildren()[1]\n",
-		internal_create_script(weak_dom, base_requirements)
+		internal_create_script(weak_dom, base_requirements, level)
 	)
 }
 
 #[cfg(feature = "base122")]
-pub fn generate_full_script(weak_dom: &WeakDom, base_requirements: Requirements) -> String {
+pub fn generate_full_script(
+	weak_dom: &WeakDom,
+	base_requirements: Requirements,
+	level: u8,
+) -> String {
 	// ensure that the generated script will be requiring a ModuleScript
 	{
 		let children = weak_dom.root().children();
@@ -335,6 +347,6 @@ pub fn generate_full_script(weak_dom: &WeakDom, base_requirements: Requirements)
 
 	format!(
 		"{}\nreturn require(decode(payloadBuffer):GetChildren()[1])\n",
-		internal_create_script(weak_dom, base_requirements)
+		internal_create_script(weak_dom, base_requirements, level)
 	)
 }

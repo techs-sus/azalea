@@ -1,12 +1,12 @@
 use azalea::emit::Requirements;
 use azalea::encoder::encode_dom_into_writer;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, value_parser};
 use color_eyre::eyre::{self, Context, bail, ensure, eyre};
 use darklua_core::rules::{
 	ConvertLuauNumber, RemoveCompoundAssignment, RemoveContinue, RemoveFloorDivision,
 	RemoveIfExpression, RemoveInterpolatedString, RemoveTypes, Rule,
 };
-use darklua_core::{Configuration, Options, Resources};
+use darklua_core::{Configuration, GeneratorParameters, Options, Resources};
 use rbx_dom_weak::WeakDom;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -31,6 +31,9 @@ enum Command {
 
 		#[clap(flatten)]
 		requirement_options: RequirementOptions,
+
+		#[clap(flatten)]
+		compression_options: CompressionOptions,
 	},
 
 	/// Fully encodes a model file into an embeddable script, with optional formatting, minification and compat available.
@@ -40,10 +43,20 @@ enum Command {
 
 		#[clap(flatten)]
 		requirement_options: RequirementOptions,
+
+		#[clap(flatten)]
+		compression_options: CompressionOptions,
 	},
 
 	/// Generates the full decoder into a file, with optional formatting, minification and compat available.
 	GenerateFullDecoder { output: PathBuf },
+}
+
+#[derive(clap::Args)]
+struct CompressionOptions {
+	/// Zstandard compression level for embedded model file; 1 to 22 (slowest)
+	#[arg(short, long, value_parser = value_parser!(u8).range(1..=22), default_value_t = 11)]
+	level: u8,
 }
 
 #[derive(clap::Args)]
@@ -151,10 +164,11 @@ fn get_stylua_config() -> stylua_lib::Config {
 fn minify_with_darklua(target: PathBuf) -> Result<(), darklua_core::DarkluaError> {
 	let options = darklua_core::Options::new(&target)
 		.with_output(target)
-		.with_generator_override(darklua_core::GeneratorParameters::Dense {
-			column_span: usize::MAX - 16,
-		})
-		.with_configuration(darklua_core::Configuration::default());
+		.with_configuration(darklua_core::Configuration::default().with_generator(
+			GeneratorParameters::Dense {
+				column_span: usize::MAX,
+			},
+		));
 
 	darklua_core::process(&Resources::from_file_system(), options)?;
 	Ok(())
@@ -385,6 +399,7 @@ fn main() -> eyre::Result<()> {
 
 		Command::GenerateFullScript {
 			requirement_options,
+			compression_options,
 			..
 		} => {
 			for (input, output) in inputs {
@@ -395,6 +410,7 @@ fn main() -> eyre::Result<()> {
 					azalea::emit::generate_full_script(
 						&weak_dom,
 						get_requirements_from_requirement_options(&requirement_options),
+						compression_options.level,
 					),
 					format,
 					minify,
@@ -405,6 +421,7 @@ fn main() -> eyre::Result<()> {
 
 		Command::GenerateEmbeddableScript {
 			requirement_options,
+			compression_options,
 			..
 		} => {
 			for (input, output) in inputs {
@@ -415,6 +432,7 @@ fn main() -> eyre::Result<()> {
 					azalea::emit::generate_embeddable_script(
 						&weak_dom,
 						get_requirements_from_requirement_options(&requirement_options),
+						compression_options.level,
 					),
 					format,
 					minify,
