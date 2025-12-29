@@ -26,9 +26,9 @@ azalea encode -i input.rbxm -o output.bin -s specializedDecoder.luau -m
 azalea generate-full-decoder -o output.luau -f
 
 # Examples which generate tailored code for a model:
-# --novel: Must be used with --legacy flag, inlines ModuleScript sources and completely avoids loadstring.
-# --legacy: Enables any environment with NewScript and NewLocalScript to run. Shims require and NewModuleScript using loadstring.
-# (default) --opensb: Enables OpenSB or any environment with NewScript, NewLocalScript, and NewModuleScript to run.
+# --novel: Supports ModuleScript loading by inlining ModuleScript sources. Completely avoids loadstring and supports require-by-string.
+# --legacy: Enables any environment with NewScript and NewLocalScript to run. Shims require and NewModuleScript using loadstring. Broken in many games and will never support require-by-string.
+# (default) --opensb: Enables OpenSB or any environment with NewScript, NewLocalScript, and NewModuleScript to run. Relies on the environment to support require-by-string.
 # --studio: Enables Studio or any environment with Source access support to run.
 # (optional, defaults to 11) --level: Zstandard compression level, 1 to 22; 22 produces the smallest output but is the slowest
 
