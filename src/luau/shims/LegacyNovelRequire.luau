@@ -24,7 +24,10 @@ do
 	end
 
 	function NewModuleScript(source: nil, parent: Instance?)
-		assert(type(source) == "nil", "first argument (source) should be nil because the Novel technique inlines sources")
+		assert(
+			type(source) == "nil",
+			"first argument (source) should be nil because the Novel technique inlines sources"
+		)
 		assert(
 			typeof(parent) == "Instance" or parent == nil,
 			"second optional argument (parent) must be of type Instance if provided"
@@ -34,6 +37,48 @@ do
 		moduleScript.Parent = parent
 
 		return moduleScript
+	end
+
+	-- There is some bug in Roblox preventing require aliases
+	-- Based off of: https://gist.github.com/techs-sus/8988a086745f4aa7692aa35e8e8d7d68
+	local function getPathTranslaterBoundToScript(script: ModuleScript)
+		return function(value: string | Instance | number | unknown)
+			if type(value) == "string" then
+				local split = string.split(value, "/")
+				local start
+
+				local firstPiece = table.remove(split, 1)
+
+				if not firstPiece then
+					error("Cannot require an empty path")
+				end
+
+				if firstPiece == "." then
+					start = script.Parent
+				elseif firstPiece == ".." then
+					start = script.Parent.Parent
+				elseif firstPiece == "@self" then
+					start = script
+				else
+					error(`Path must begin with './', '../', or '@': received '{firstPiece}'`)
+				end
+
+				for _, piece in split do
+					-- if piece == "." then start = start end
+					if piece == "." then
+					-- would be start = start; aka do nothing, but don't fallback to FindFirstChild
+					elseif piece == ".." then
+						start = start.Parent
+					else
+						start = start:FindFirstChild(piece, false)
+					end
+				end
+
+				value = start
+			end
+
+			return require(value)
+		end
 	end
 
 	function require(value): unknown
@@ -62,7 +107,7 @@ do
 				-- end
 
 				-- we silently ignore >1 return values
-				cache = module.load(value)()
+				cache = module.load(value, getPathTranslaterBoundToScript(value))()
 
 				module.cache = cache
 			end
