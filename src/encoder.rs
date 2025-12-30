@@ -545,6 +545,12 @@ fn write_variant(
 				.wrap_err("failed writing bytes for Vector3int16")?;
 		}
 
+		Variant::NetAssetRef(net_asset_ref) => write_variant(
+			target,
+			Variant::BinaryString(BinaryString::from(net_asset_ref.data())),
+			referent_map,
+		)?,
+
 		_ => eyre::bail!("unimplemented VariantType: {:#?}", variant.ty()),
 	}
 
