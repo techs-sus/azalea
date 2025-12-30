@@ -24,9 +24,9 @@ fn write_varstring(target: &mut impl Write, string: &[u8]) -> eyre::Result<()> {
 }
 
 /// NOTE: This function does not add any sort of type id.
-fn write_nullstring(target: &mut impl Write, string: &str) -> eyre::Result<()> {
+fn write_nullstring(target: &mut impl Write, string: &[u8]) -> eyre::Result<()> {
 	target
-		.write_all(string.as_bytes())
+		.write_all(string)
 		.wrap_err("failed writing string contents for nullstring")?;
 
 	target
@@ -52,7 +52,7 @@ fn write_variant(
 				.wrap_err("failed writing attributes length as leb128 encoded unsigned integer")?;
 
 			for (attribute_name, attribute_variant) in attributes {
-				write_nullstring(target, &attribute_name)
+				write_nullstring(target, attribute_name.as_bytes())
 					.wrap_err("failed writing attribute name as nullstring")?;
 				write_variant(target, attribute_variant, referent_map).wrap_err_with(|| {
 					format!("failed writing attribute variant for attribute name {attribute_name}")
@@ -81,7 +81,7 @@ fn write_variant(
 			target
 				.write_all(&[TypeId::BrickColor as u8])
 				.wrap_err("failed writing type id for BrickColor")?;
-			write_nullstring(target, &name)
+			write_nullstring(target, name.as_bytes())
 				.wrap_err("failed writing name for BrickColor as nullstring")?;
 		}
 		// https://dom.rojo.space/binary.html
@@ -196,7 +196,7 @@ fn write_variant(
 					target
 						.write_all(&[TypeId::ContentUri as u8])
 						.wrap_err("failed to write type id for uri Content")?;
-					write_nullstring(target, string)
+					write_nullstring(target, string.as_bytes())
 						.wrap_err("failed writing varstring for uri Content string")?;
 				}
 				_ => todo!("ContentType {:#?} is not yet implemented", content.value()),
@@ -246,7 +246,7 @@ fn write_variant(
 				.write_all(&[TypeId::Font as u8])
 				.wrap_err("failed writing type id for Font")?;
 
-			write_nullstring(target, &font.family)
+			write_nullstring(target, font.family.as_bytes())
 				.wrap_err("failed writing family for Font as nullstring")?;
 
 			target
@@ -471,7 +471,7 @@ fn write_variant(
 				.wrap_err("failed writing tags length as leb128 encoded unsigned integer")?;
 
 			for tag in tags.iter() {
-				write_nullstring(target, tag).wrap_err("failed writing tag as nullstring")?;
+				write_nullstring(target, tag.as_bytes()).wrap_err("failed writing tag as nullstring")?;
 			}
 		}
 		Variant::UDim(udim) => {
@@ -567,7 +567,7 @@ fn encode_instance<'a>(
 	let referent_map = &mut options.referent_map;
 	write_variant(buffer, Variant::String(instance.name.clone()), referent_map)?;
 
-	write_nullstring(buffer, instance.class.as_str())
+	write_nullstring(buffer, instance.class.as_bytes())
 		.wrap_err("failed writing nullstring for instance ClassName")?;
 	write_variant(buffer, Variant::Ref(instance.referent()), referent_map)?;
 	write_variant(buffer, Variant::Ref(instance.parent()), referent_map)?;
@@ -598,7 +598,7 @@ fn encode_instance<'a>(
 						.module_script_sources
 						.insert(*referent_map.get(&instance.referent()).unwrap(), source);
 
-					write_nullstring(buffer, "Source")
+					write_nullstring(buffer, b"Source")
 						.wrap_err("failed writing Source property as nullstring")?;
 
 					buffer
@@ -618,7 +618,8 @@ fn encode_instance<'a>(
 			.known_needed_type_ids
 			.extend(crate::spec::variant_to_type_id(value));
 
-		write_nullstring(buffer, property).wrap_err("failed writing property name as nullstring")?;
+		write_nullstring(buffer, property.as_bytes())
+			.wrap_err("failed writing property name as nullstring")?;
 		write_variant(buffer, value.to_owned(), referent_map)
 			.wrap_err("failed writing property variant")?;
 	}
