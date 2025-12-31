@@ -77,17 +77,14 @@ pub struct Options<'options> {
 
 #[derive(Template)]
 #[template(path = "decoder.txt")]
-struct DecoderTemplate<'a> {
-	type_id_table: &'a str,
-	cframe_lookup_table_present: bool,
-	new_script_shim: Option<&'a str>,
-	new_local_script_shim: Option<&'a str>,
-	new_module_script_shim: Option<&'a str>,
-	variant_decoder_table: &'a str,
+struct DecoderTemplate<'template> {
+	type_id_table: &'template str,
+	new_script_shim: Option<&'template str>,
+	new_local_script_shim: Option<&'template str>,
+	new_module_script_shim: Option<&'template str>,
+	variant_decoder_table: &'template str,
 
-	mesh_part_exists: bool,
-	use_novel_inlining: bool,
-	return_decode: bool,
+	requirements: Requirements,
 }
 
 fn generate_new_script_glue(requirements: Requirements) -> String {
@@ -230,15 +227,12 @@ pub fn generate_with_options(options: &Options) -> String {
 		.then(|| generate_new_module_script_glue(options));
 
 	let template = DecoderTemplate {
-		cframe_lookup_table_present: requirements.contains(Requirements::CFRAME_LOOKUP_TABLE),
 		type_id_table: &get_luau_for_type_ids(type_ids.iter()),
 		new_script_shim: new_script_shim.as_deref(),
 		new_local_script_shim: new_local_script_shim.as_deref(),
 		new_module_script_shim: new_module_script_shim.as_deref(),
 		variant_decoder_table: &get_luau_variant_decoder_for_ids(type_ids.iter()),
-		mesh_part_exists: requirements.contains(Requirements::MESH_PART_SUPPORT),
-		use_novel_inlining: requirements.contains(Requirements::USE_NOVEL_INLINING),
-		return_decode: requirements.contains(Requirements::RETURN_DECODE),
+		requirements,
 	};
 
 	template.render().unwrap()
