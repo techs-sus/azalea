@@ -35,7 +35,7 @@ pub enum Error {
 	EndOfStream,
 }
 
-/// Fully conformant Base122 encoder, [`ILLEGAL_BYTES`] can be customized to change behaviour / increase encoder efficency.
+/// Fully conformant Base122 encoder. Can be customized to change behaviour / increase encoder efficency.
 pub struct Base122OriginalEncoder<'data, N: ArraySize> {
 	illegal_bytes: Array<u8, N>,
 

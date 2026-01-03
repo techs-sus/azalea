@@ -38,25 +38,29 @@ bitflags::bitflags! {
 
 		/* if NEW_SCRIPT_FUNCTION or NEW_LOCAL_SCRIPT_FUNCTION or NEW_MODULE_SCRIPT_FUNCTION are enabled, one of the below MUST be enabled */
 
-		/// Enable this if you want to run Azalea generated scripts in the command bar.
+		/// Enable this if you want to run Azalea generated scripts in Studio's command bar.
 		///
 		/// This is an EXPLICIT requirement.
 		const STUDIO_SUPPORT = 32;
+
 		/// Enable this if you want to run Azalea generated scripts in a compliant OpenSB implementation which supports NewScript, NewLocalScript and NewModuleScript.
 		///
 		/// This is an EXPLICIT requirement.
 		const OPENSB_SUPPORT = 64;
+
 		/// Enable this if you want to run Azalea generated scripts in an environment which supports NewScript, NewLocalScript but NOT NewModuleScript.
-		/// We shim require, and you'll need to use the shimmed version for this to be useful at all.
+		/// Shims require, calling vanilla require on a ModuleScript produced by this method will error.
+		///
+		/// It is recommended that you instead use [`Self::USE_NOVEL_INLINING`].
 		///
 		/// This is an EXPLICIT requirement.
 		const LEGACY_SUPPORT = 128;
 
-		/// The Novel Method (avoid loadstring, inline) only applies to [`Self::LEGACY_SUPPORT`].
+		/// The Novel Method is similar to [`Self::LEGACY_SUPPORT`] but it avoids loadstring and getfenv by inlining sources.
 		///
 		/// Inlines ModuleScript sources in a manner similar to [Wax](https://github.com/latte-soft/wax) and [Darklua](https://github.com/seaofvoices/darklua).
 		/// Avoids performance regressions by using an explicit require and script upvalue in chunk functions.
-		/// Require is therefore still shimmed and all rules from [`Self::LEGACY_SUPPORT`] apply.
+		/// Shims require, calling vanilla require on a ModuleScript produced by this method will error.
 		///
 		/// This is an EXPLICIT requirement.
 		const USE_NOVEL_INLINING = 256;
@@ -141,58 +145,55 @@ fn generate_new_local_script_glue(requirements: Requirements) -> String {
 
 fn generate_new_module_script_glue(options: &Options) -> String {
 	let mut exprs: Vec<String> = Vec::with_capacity(3);
-	match options
+
+	if options
 		.generation_requirements
 		.contains(Requirements::USE_NOVEL_INLINING)
 	{
-		true => {
-			let mut output = String::new();
+		let mut output = String::new();
 
-			for (ref_id, source) in &options.module_script_sources {
-				writeln!(
+		for (ref_id, source) in &options.module_script_sources {
+			writeln!(
 					output,
 					"[{ref_id}] = {{ cache = MODULE_UNCACHED_LVALUE, load = function(script: ModuleScript, require: typeof(require)) return function()\n{source}\nend end }},"
 				).expect("failed writing module def");
-			}
-
-			/* skip other code generation because novel model isn't compatible anyway */
-			return include_str!("luau/shims/LegacyNovelRequire.luau").replace("--@generate", &output);
 		}
 
-		false => {
-			if options
-				.generation_requirements
-				.contains(Requirements::OPENSB_SUPPORT)
-			{
-				exprs.push("NewModuleScript".to_string());
-			}
+		/* skip other code generation because novel model isn't compatible anyway */
+		return include_str!("luau/shims/LegacyNovelRequire.luau").replace("--@generate", &output);
+	}
 
-			if options
-				.generation_requirements
-				.contains(Requirements::STUDIO_SUPPORT)
-			{
-				exprs.push(
-					r#"(game:GetService("RunService"):IsStudio() and (function(code, parent)
+	if options
+		.generation_requirements
+		.contains(Requirements::OPENSB_SUPPORT)
+	{
+		exprs.push("NewModuleScript".to_string());
+	}
+
+	if options
+		.generation_requirements
+		.contains(Requirements::STUDIO_SUPPORT)
+	{
+		exprs.push(
+			r#"(game:GetService("RunService"):IsStudio() and (function(code, parent)
 		local script = Instance.new("ModuleScript")
 		script.Source = code
 		script.Parent = parent
 
 		return script
 	end))"#
-						.to_string(),
-				);
-			}
+				.to_string(),
+		);
+	}
 
-			if options
-				.generation_requirements
-				.contains(Requirements::LEGACY_SUPPORT)
-			{
-				exprs.push(format!(
-					"nil\n{};",
-					include_str!("luau/shims/LegacyNormalRequire.luau")
-				));
-			}
-		}
+	if options
+		.generation_requirements
+		.contains(Requirements::LEGACY_SUPPORT)
+	{
+		exprs.push(format!(
+			"nil\n{};",
+			include_str!("luau/shims/LegacyNormalRequire.luau")
+		));
 	}
 
 	format!(
@@ -289,15 +290,15 @@ fn internal_create_script(
 	std::io::copy(&mut std::io::Cursor::new(encoded_dom), &mut zstd_encoder).unwrap();
 	zstd_encoder.finish().unwrap();
 
-	// old base64 generator
-	// output.push_str("local payloadBuffer: buffer = game:GetService(\"HttpService\"):JSONDecode([[{\"m\":null,\"t\":\"buffer\",\"zbase64\":\"");
-	// output.push_str(&BASE64_STANDARD.encode(&zstd_out));
-	// output.push_str("\"}]])\n");
-
 	// embed decoder
 	// output.push_str("local decode = (function()\n");
 	output.push_str(&generate_with_options(&options));
 	// output.push_str("\nend)()\n");
+
+	// old base64 generator
+	// output.push_str("local payloadBuffer: buffer = game:GetService(\"HttpService\"):JSONDecode([[{\"m\":null,\"t\":\"buffer\",\"zbase64\":\"");
+	// output.push_str(&BASE64_STANDARD.encode(&zstd_out));
+	// output.push_str("\"}]])\n");
 
 	// SAFETY: Base122 (and by extension, Base123) encoded data is valid UTF-8.
 	let base122 = crate::base122::base123_encode(&zstd_out);

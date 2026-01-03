@@ -141,10 +141,9 @@ pub fn variant_to_type_id(variant: &Variant) -> Vec<TypeId> {
 		Variant::SecurityCapabilities(..) => vec![TypeId::SecurityCapabilities],
 		Variant::Tags(..) => vec![TypeId::Tags],
 
-		Variant::OptionalCFrame(cframe) => vec![match cframe {
-			Some(..) => TypeId::CFrame,
-			None => TypeId::None,
-		}],
+		Variant::OptionalCFrame(None) => vec![TypeId::None],
+		Variant::OptionalCFrame(Some(..)) => vec![TypeId::CFrame],
+
 		Variant::Content(content) => vec![match content.value() {
 			rbx_dom_weak::types::ContentType::None => TypeId::ContentNone,
 			rbx_dom_weak::types::ContentType::Object(_) => TypeId::ContentObject,
