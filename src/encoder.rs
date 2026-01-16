@@ -4,10 +4,10 @@ use crate::{
 	emit::{Options, Requirements},
 	spec::TypeId,
 };
-use color_eyre::eyre::{self, OptionExt, WrapErr};
+use color_eyre::eyre::{self, WrapErr};
 use rbx_dom_weak::{
 	Instance, WeakDom,
-	types::{BinaryString, ContentType, Ref, Variant},
+	types::{BinaryString, ContentType, Ref, SharedString, Variant},
 };
 use std::{
 	collections::{HashMap, HashSet},
@@ -36,9 +36,22 @@ fn write_nullstring(target: &mut impl Write, string: &[u8]) -> eyre::Result<()> 
 	Ok(())
 }
 
+/// This function writes the type id [`TypeId::String`] and then a varstring.
+///
+/// It is provided so you can write a [`Variant::String`] without having to clone data.
+fn write_string_variant(target: &mut impl Write, string: &str) -> eyre::Result<()> {
+	target
+		.write_all(&[TypeId::String as u8])
+		.wrap_err("failed to write type id for String")?;
+
+	write_varstring(target, string.as_bytes()).wrap_err("failed writing varstring for String")?;
+
+	Ok(())
+}
+
 fn write_variant(
 	target: &mut impl Write,
-	variant: Variant,
+	variant: &Variant,
 	referent_map: &mut HashMap<Ref, usize>,
 ) -> eyre::Result<()> {
 	match variant {
@@ -69,11 +82,11 @@ fn write_variant(
 				.write_all(&[TypeId::BinaryString as u8])
 				.wrap_err("failed writing type id for BinaryString")?;
 
-			write_varstring(target, &binary_string.into_vec())?;
+			write_varstring(target, binary_string.as_ref())?;
 		}
 		Variant::Bool(bool) => {
 			target
-				.write_all(&[TypeId::Bool as u8, bool.into()])
+				.write_all(&[TypeId::Bool as u8, (*bool).into()])
 				.wrap_err("failed writing bytes for Bool")?;
 		}
 		Variant::BrickColor(brick_color) => {
@@ -163,7 +176,7 @@ fn write_variant(
 			leb128::write::unsigned(target, sequence.keypoints.len().try_into()?)
 				.wrap_err("failed writing color sequence length as leb128 encoded unsigned integer")?;
 
-			for keypoint in sequence.keypoints {
+			for keypoint in &sequence.keypoints {
 				let color = keypoint.color;
 
 				target
@@ -177,7 +190,7 @@ fn write_variant(
 		}
 		Variant::ContentId(content) => {
 			// "When exposed to Lua, this is just a string."
-			write_variant(target, Variant::String(content.into_string()), referent_map)?;
+			write_string_variant(target, content.as_str())?;
 		}
 		Variant::Content(content) => {
 			match content.value() {
@@ -190,7 +203,7 @@ fn write_variant(
 					target
 						.write_all(&[TypeId::ContentObject as u8])
 						.wrap_err("failed to write type id for nil Content")?;
-					write_variant(target, Variant::Ref(*referent), referent_map)?;
+					write_variant(target, &Variant::Ref(*referent), referent_map)?;
 				}
 				ContentType::Uri(string) => {
 					target
@@ -199,6 +212,7 @@ fn write_variant(
 					write_nullstring(target, string.as_bytes())
 						.wrap_err("failed writing varstring for uri Content string")?;
 				}
+
 				_ => todo!("ContentType {:#?} is not yet implemented", content.value()),
 			};
 		}
@@ -265,15 +279,15 @@ fn write_variant(
 				.write_all(&int.to_le_bytes())
 				.wrap_err("failed writing bytes for Int32")?;
 		}
-		Variant::Int64(int) => match i32::try_from(int) {
+		Variant::Int64(int) => match i32::try_from(*int) {
 			/*
 				* you can't really represent true i64's in lua
 				* so we try representing them as i32's first, and fallback to f64
 				* warning: casting `i64` to `f64` causes a loss of precision (`i64` is 64 bits wide, but `f64`'s mantissa is only 52 bits wide)
 				* ^ this is fine, luau numbers are f64's anyway
 			 */
-			Ok(int) => write_variant(target, Variant::Int32(int), referent_map)?,
-			Err(_) => write_variant(target, Variant::Float64(int as f64), referent_map)?,
+			Ok(int) => write_variant(target, &Variant::Int32(int), referent_map)?,
+			Err(_) => write_variant(target, &Variant::Float64((*int) as f64), referent_map)?,
 		},
 		Variant::MaterialColors(colors) => {
 			let bytes = colors.encode();
@@ -301,7 +315,7 @@ fn write_variant(
 			leb128::write::unsigned(target, sequence.keypoints.len().try_into()?)
 				.wrap_err("failed writing number sequence length as leb128 encoded unsigned integer")?;
 
-			for keypoint in sequence.keypoints {
+			for keypoint in &sequence.keypoints {
 				target
 					.write_all(
 						[keypoint.envelope, keypoint.time, keypoint.value]
@@ -317,7 +331,7 @@ fn write_variant(
 					.write_all(&[TypeId::None as u8])
 					.wrap_err("failed writing type id for OptionalCFrame")?;
 			}
-			Some(cframe) => write_variant(target, Variant::CFrame(cframe), referent_map)?,
+			Some(cframe) => write_variant(target, &Variant::CFrame(*cframe), referent_map)?,
 		},
 		Variant::PhysicalProperties(properties) => match properties {
 			rbx_dom_weak::types::PhysicalProperties::Default => {
@@ -392,11 +406,11 @@ fn write_variant(
 			// once, therefore, we can map refs to smaller usize id's. furthermore, roblox cannot handle values
 			// above [`u32::MAX`].
 
-			let id = if let Some(&id) = referent_map.get(&referent) {
+			let id = if let Some(&id) = referent_map.get(referent) {
 				id
 			} else {
 				let id = referent_map.len();
-				referent_map.insert(referent, id);
+				referent_map.insert(*referent, id);
 				id
 			};
 
@@ -452,16 +466,11 @@ fn write_variant(
 		}
 		Variant::SharedString(string) => write_variant(
 			target,
-			Variant::BinaryString(BinaryString::from(string.data())),
+			&Variant::BinaryString(BinaryString::from(string.data())),
 			referent_map,
 		)?,
 
-		Variant::String(string) => {
-			target
-				.write_all(&[TypeId::String as u8])
-				.wrap_err("failed to write type id for String")?;
-			write_varstring(target, string.as_bytes()).wrap_err("failed writing varstring for String")?;
-		}
+		Variant::String(string) => write_string_variant(target, string.as_str())?,
 		Variant::Tags(tags) => {
 			target
 				.write_all(&[TypeId::Tags as u8])
@@ -500,10 +509,7 @@ fn write_variant(
 				)
 				.wrap_err("failed writing bytes for UDim2")?;
 		}
-		Variant::UniqueId(id) => {
-			let string = format!("{id}");
-			write_variant(target, Variant::String(string), referent_map)?;
-		}
+		Variant::UniqueId(id) => write_string_variant(target, &format!("{id}"))?,
 		Variant::Vector2(vector) => {
 			target
 				.write_all(&[TypeId::Vector2 as u8])
@@ -547,7 +553,7 @@ fn write_variant(
 
 		Variant::NetAssetRef(net_asset_ref) => write_variant(
 			target,
-			Variant::BinaryString(BinaryString::from(net_asset_ref.data())),
+			&Variant::SharedString(SharedString::new(net_asset_ref.data().to_vec())),
 			referent_map,
 		)?,
 
@@ -558,19 +564,22 @@ fn write_variant(
 }
 
 /// Encodes an [`Instance`] alongside it's [`WeakDom`] with a referent map into a writer which implements [`Write`].
-fn encode_instance<'a>(
-	instance: &'a Instance,
-	weak_dom: &'a WeakDom,
-	options: &mut Options<'a>,
+fn encode_instance<'dom>(
+	instance: &'dom Instance,
+	weak_dom: &'dom WeakDom,
+	options: &mut Options<'dom>,
 	buffer: &mut impl Write,
 ) -> eyre::Result<()> {
 	let referent_map = &mut options.referent_map;
-	write_variant(buffer, Variant::String(instance.name.clone()), referent_map)?;
+
+	// TODO: Just make this a raw Varstring, don't wrap in Variant
+	write_string_variant(buffer, &instance.name)?;
 
 	write_nullstring(buffer, instance.class.as_bytes())
 		.wrap_err("failed writing nullstring for instance ClassName")?;
-	write_variant(buffer, Variant::Ref(instance.referent()), referent_map)?;
-	write_variant(buffer, Variant::Ref(instance.parent()), referent_map)?;
+
+	write_variant(buffer, &Variant::Ref(instance.referent()), referent_map)?;
+	write_variant(buffer, &Variant::Ref(instance.parent()), referent_map)?;
 
 	// Properties
 	buffer.write_all(
@@ -579,39 +588,37 @@ fn encode_instance<'a>(
 		.to_le_bytes(),
 	)?;
 
+	match instance.class.as_str() {
+		"Script" => options.generation_requirements |= Requirements::NEW_SCRIPT_FUNCTION,
+		"LocalScript" => options.generation_requirements |= Requirements::NEW_LOCAL_SCRIPT_FUNCTION,
+		"ModuleScript" => options.generation_requirements |= Requirements::NEW_MODULE_SCRIPT_FUNCTION,
+		"MeshPart" => options.generation_requirements |= Requirements::MESH_PART_SUPPORT,
+
+		_ => {}
+	}
+
 	for (property, value) in &instance.properties {
-		match instance.class.as_str() {
-			"Script" => options.generation_requirements |= Requirements::NEW_SCRIPT_FUNCTION,
-			"LocalScript" => options.generation_requirements |= Requirements::NEW_LOCAL_SCRIPT_FUNCTION,
-			"ModuleScript" => {
-				options.generation_requirements |= Requirements::NEW_MODULE_SCRIPT_FUNCTION;
+		if instance.class == "ModuleScript"
+			&& property == "Source"
+			&& options
+				.generation_requirements
+				.contains(Requirements::USE_NOVEL_INLINING)
+			&& let Variant::String(source) = value
+		{
+			// this won't panic because we write the instance ref before the loop and write_variant
+			// on a Ref which means the referent_map is always populated with a usize for the Ref
+			options
+				.module_script_sources
+				.insert(*referent_map.get(&instance.referent()).unwrap(), source);
 
-				if property == "Source"
-					&& options
-						.generation_requirements
-						.contains(Requirements::USE_NOVEL_INLINING)
-					&& let Variant::String(source) = value
-				{
-					// this won't panic because we write the instance ref before the loop and write_variant
-					// on a Ref means the referent_map is always populated with a usize for the Ref
-					options
-						.module_script_sources
-						.insert(*referent_map.get(&instance.referent()).unwrap(), source);
+			write_nullstring(buffer, b"Source")
+				.wrap_err("failed writing Source property as nullstring")?;
 
-					write_nullstring(buffer, b"Source")
-						.wrap_err("failed writing Source property as nullstring")?;
+			buffer
+				.write_all(&[TypeId::None as u8])
+				.wrap_err("failed writing None type id for null Source (for novel inlining)")?;
 
-					buffer
-						.write_all(&[TypeId::None as u8])
-						.wrap_err("failed writing None type id for null Source")?;
-
-					continue;
-				}
-			}
-
-			"MeshPart" => options.generation_requirements |= Requirements::MESH_PART_SUPPORT,
-
-			_ => {}
+			continue;
 		}
 
 		options
@@ -620,15 +627,13 @@ fn encode_instance<'a>(
 
 		write_nullstring(buffer, property.as_bytes())
 			.wrap_err("failed writing property name as nullstring")?;
-		write_variant(buffer, value.to_owned(), referent_map)
-			.wrap_err("failed writing property variant")?;
+		write_variant(buffer, value, referent_map).wrap_err("failed writing property variant")?;
 	}
 
 	// Children
 	for child in instance.children() {
-		let child_instance = weak_dom
-			.get_by_ref(child.to_owned())
-			.ok_or_eyre("referent must exist")?;
+		// children()'s contract states: All referents returned will be non-null and point to valid instances in the same `WeakDom`
+		let child_instance = weak_dom.get_by_ref(*child).unwrap();
 
 		encode_instance(child_instance, weak_dom, options, buffer)?;
 	}
