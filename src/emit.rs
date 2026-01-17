@@ -258,7 +258,9 @@ fn internal_create_script(
 	weak_dom: &WeakDom,
 	base_requirements: Requirements,
 	level: u8,
-) -> String {
+
+	writer: &mut impl std::io::Write,
+) {
 	/*
 		* in a perfect world, we would be able to directly wrap writers around each other as below:
 		* [[azalea encoder] -> [zstd writer] -> [base64/base122 writer]]
@@ -272,7 +274,7 @@ fn internal_create_script(
 		* however, the base122 writer is pretty unstable and results in corrupted blocks / checksum failures
 		*/
 
-	let mut output = String::new();
+	// let mut output = String::new();
 	let mut encoded_dom = Vec::new();
 
 	let options =
@@ -291,46 +293,56 @@ fn internal_create_script(
 	zstd_encoder.finish().unwrap();
 
 	// embed decoder
-	// output.push_str("local decode = (function()\n");
-	output.push_str(&generate_with_options(&options));
-	// output.push_str("\nend)()\n");
+	writer
+		.write_all(generate_with_options(&options).as_bytes())
+		.expect("failed writing decoder src into writer");
 
 	// old base64 generator
 	// output.push_str("local payloadBuffer: buffer = game:GetService(\"HttpService\"):JSONDecode([[{\"m\":null,\"t\":\"buffer\",\"zbase64\":\"");
 	// output.push_str(&BASE64_STANDARD.encode(&zstd_out));
 	// output.push_str("\"}]])\n");
 
-	// SAFETY: Base122 (and by extension, Base123) encoded data is valid UTF-8.
-	let base122 = crate::base122::base123_encode(&zstd_out);
-	output.push_str(
-		&include_str!("./luau/minifiedCombinator.luau").replace("%REPLACE_ME%", unsafe {
-			str::from_utf8_unchecked(&base122)
-		}),
-	);
+	writer
+		.write_all(include_bytes!("./luau/minifiedCombinator.luau"))
+		.expect("failed writing minified base123 decoder");
 
-	output
+	writer
+		.write_all(b"local payloadBuffer=game:GetService('EncodingService'):DecompressBuffer(f(\"")
+		.expect("failed writing piece");
+
+	// Base122 (and by extension, Base123) encoded data is valid UTF-8.
+	crate::base122::base123_encode_into(&zstd_out, writer).expect("failed writing base123 data");
+
+	writer
+		.write_all(b"\"),Enum.CompressionAlgorithm.Zstd)")
+		.expect("failed writing piece");
 }
 
+/// Generates an embeddable script into your writer. It is guaranteed that we will only write valid UTF-8 bytes.
 #[cfg(feature = "base122")]
-#[must_use]
 pub fn generate_embeddable_script(
 	weak_dom: &WeakDom,
 	base_requirements: Requirements,
 	level: u8,
-) -> String {
-	format!(
-		"{}\nreturn decode(payloadBuffer):GetChildren()[1]\n",
-		internal_create_script(weak_dom, base_requirements, level)
-	)
+
+	writer: &mut impl std::io::Write,
+) {
+	internal_create_script(weak_dom, base_requirements, level, writer);
+
+	writer
+		.write_all(b"\nreturn decode(payloadBuffer):GetChildren()[1]\n")
+		.expect("failed writing return statement");
 }
 
+/// Generates a full script into your writer. It is guaranteed that we will only write valid UTF-8 bytes.
 #[cfg(feature = "base122")]
-#[must_use]
 pub fn generate_full_script(
 	weak_dom: &WeakDom,
 	base_requirements: Requirements,
 	level: u8,
-) -> String {
+
+	writer: &mut impl std::io::Write,
+) {
 	// ensure that the generated script will be requiring a ModuleScript
 	{
 		let children = weak_dom.root().children();
@@ -344,8 +356,9 @@ pub fn generate_full_script(
 		);
 	};
 
-	format!(
-		"{}\nreturn require(decode(payloadBuffer):GetChildren()[1])\n",
-		internal_create_script(weak_dom, base_requirements, level)
-	)
+	internal_create_script(weak_dom, base_requirements, level, writer);
+
+	writer
+		.write_all(b"\nreturn require(decode(payloadBuffer):GetChildren()[1])\n")
+		.expect("failed writing return require(...) statement");
 }

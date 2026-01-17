@@ -1,6 +1,8 @@
 //! License compliant port of <https://github.com/vence722/base122-go/blob/main/encoder.go>.
 //! A writer once lived here, but it was not implemented correctly.
 
+use std::io::Write;
+
 use hybrid_array::{
 	Array, ArraySize,
 	sizes::{U5, U6},
@@ -94,13 +96,9 @@ impl<'data, N: ArraySize> Base122OriginalEncoder<'data, N> {
 		Ok(first_encoded_byte | second_encoded_byte)
 	}
 
-	/// Consumes and encodes the data stored in [`self`].
+	/// Consumes and encodes the data stored in [`self`] into a writer.
 	/// This method consumes self as the Encoder is designed to be single use, and multiple invocations of encode lead to incorrect output.
-	#[must_use]
-	pub fn encode(mut self) -> Vec<u8> {
-		// 1.75 * self.data.len()
-		let mut output = Vec::with_capacity((7 * self.data.len()) / 4);
-
+	pub fn encode_into(mut self, writer: &mut impl Write) -> std::io::Result<()> {
 		while let Ok(first_seven_bits_byte) = self.next_7_bits() {
 			// check if the byte hits the illegal bytes,
 			// and get the index of first byte (which is the illegal byte)
@@ -113,7 +111,7 @@ impl<'data, N: ArraySize> Base122OriginalEncoder<'data, N> {
 
 			if illegal_byte_index.is_none() {
 				// if no hit, just save the single 7-bits byte into the result
-				output.push(first_seven_bits_byte);
+				writer.write_all(&[first_seven_bits_byte])?;
 				continue;
 			}
 
@@ -129,26 +127,42 @@ impl<'data, N: ArraySize> Base122OriginalEncoder<'data, N> {
 
 			// if the byte hits the illegal bytes, need to encode it
 			// into 2-bytes format together with the next 7-bits byte
-			let mut second_seven_bits_byte = self.next_7_bits().ok();
 
-			// hasNextByte
-			if second_seven_bits_byte.is_some() {
-				first_encoded_byte |= (0b0000_0111 & illegal_byte_index) << 2;
-			} else {
-				first_encoded_byte |= SHORTENED << 2;
-				second_seven_bits_byte = Some(first_seven_bits_byte); // encode the first 7-bits byte into the last byte, since we have no next byte
-			}
+			let second_seven_bits_byte = match self.next_7_bits() {
+				Ok(byte) => {
+					first_encoded_byte |= (0b0000_0111 & illegal_byte_index) << 2;
 
-			let second_seven_bits_byte: u8 = second_seven_bits_byte.unwrap();
+					byte
+				}
+
+				Err(..) => {
+					first_encoded_byte |= SHORTENED << 2;
+
+					first_seven_bits_byte
+				}
+			};
 
 			// put the first bit into the first byte to encode
 			first_encoded_byte |= (0b0100_0000 & second_seven_bits_byte) >> 6;
 			// put the rest of the 6 bits into the second byte to encode
 			second_encoded_byte |= 0b0011_1111 & second_seven_bits_byte;
 
-			output.push(first_encoded_byte);
-			output.push(second_encoded_byte);
+			writer.write_all(&[first_encoded_byte, second_encoded_byte])?;
 		}
+
+		Ok(())
+	}
+
+	/// Consumes and encodes the data stored in [`self`].
+	/// This method consumes self as the Encoder is designed to be single use, and multiple invocations of encode lead to incorrect output.
+	#[must_use]
+	pub fn encode(self) -> Vec<u8> {
+		// 1.75 * self.data.len()
+		let mut output = Vec::with_capacity((7 * self.data.len()) / 4);
+
+		self
+			.encode_into(&mut output)
+			.expect("failed writing into memory buffer");
 
 		output
 	}
@@ -158,6 +172,11 @@ impl<'data, N: ArraySize> Base122OriginalEncoder<'data, N> {
 #[must_use]
 pub fn base122_encode(data: &[u8]) -> Vec<u8> {
 	Base122OriginalEncoder::new(data, Array::<u8, U6>(BASE122_ILLEGAL_BYTES)).encode()
+}
+
+/// A more concise version of [`Base122OriginalEncoder::encode_into`]. Uses Base123 illegal bytes.
+pub fn base123_encode_into(data: &[u8], writer: &mut impl Write) -> std::io::Result<()> {
+	Base122OriginalEncoder::new(data, Array::<u8, U5>(BASE123_ILLEGAL_BYTES)).encode_into(writer)
 }
 
 /// A more concise version of [`Base122OriginalEncoder::encode`]. Uses Base123 illegal bytes.

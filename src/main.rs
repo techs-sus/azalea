@@ -241,6 +241,30 @@ fn write_to_luau_file<T: AsRef<Path>>(
 	Ok(())
 }
 
+fn write_with_callback<T: AsRef<Path>, F: FnOnce(WeakDom, &mut Vec<u8>)>(
+	input: T,
+	output: T,
+	callback: F,
+	format: bool,
+	minify: bool,
+	compat: bool,
+) -> eyre::Result<()> {
+	let dom = read_dom_from_path(input)?;
+	let mut src: Vec<u8> = Vec::new();
+	callback(dom, &mut src);
+	write_to_luau_file(
+		output,
+		// Base122 (and by extension, Base123) encoded data is valid UTF-8.
+		// Additionally, all emitted data is UTF-8.
+		unsafe { String::from_utf8_unchecked(src) },
+		format,
+		minify,
+		compat,
+	)?;
+
+	Ok(())
+}
+
 fn get_requirements_from_requirement_options(options: &RequirementOptions) -> Requirements {
 	let mut requirements = Requirements::empty();
 
@@ -403,19 +427,22 @@ fn main() -> eyre::Result<()> {
 			..
 		} => {
 			for (input, output) in inputs {
-				let weak_dom = read_dom_from_path(&input)?;
-
-				write_to_luau_file(
-					output,
-					azalea::emit::generate_full_script(
-						&weak_dom,
-						get_requirements_from_requirement_options(&requirement_options),
-						compression_options.level,
-					),
+				write_with_callback(
+					&input,
+					&output,
+					|weak_dom, src| {
+						azalea::emit::generate_full_script(
+							&weak_dom,
+							get_requirements_from_requirement_options(&requirement_options),
+							compression_options.level,
+							src,
+						);
+					},
 					format,
 					minify,
 					compat,
-				)?;
+				)
+				.expect("failed writing or generating full script");
 			}
 		}
 
@@ -425,19 +452,22 @@ fn main() -> eyre::Result<()> {
 			..
 		} => {
 			for (input, output) in inputs {
-				let weak_dom = read_dom_from_path(&input)?;
-
-				write_to_luau_file(
-					output,
-					azalea::emit::generate_embeddable_script(
-						&weak_dom,
-						get_requirements_from_requirement_options(&requirement_options),
-						compression_options.level,
-					),
+				write_with_callback(
+					&input,
+					&output,
+					|weak_dom, src| {
+						azalea::emit::generate_embeddable_script(
+							&weak_dom,
+							get_requirements_from_requirement_options(&requirement_options),
+							compression_options.level,
+							src,
+						);
+					},
 					format,
 					minify,
 					compat,
-				)?;
+				)
+				.expect("failed writing or generating full script");
 			}
 		}
 
