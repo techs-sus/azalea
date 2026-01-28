@@ -74,9 +74,11 @@ bitflags::bitflags! {
 
 pub struct Options<'options> {
 	pub generation_requirements: Requirements,
-	pub known_needed_type_ids: HashSet<TypeId>,
-	pub module_script_sources: HashMap<usize, &'options str>,
-	pub referent_map: HashMap<Ref, usize>,
+
+	// i don't want consumers of azalea to accidentally break stuff
+	pub(crate) known_needed_type_ids: HashSet<TypeId>,
+	pub(crate) module_script_sources: HashMap<usize, &'options str>,
+	pub(crate) referent_map: HashMap<Ref, usize>,
 }
 
 #[derive(Template)]
