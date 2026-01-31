@@ -3,14 +3,6 @@
 
 use std::io::Write;
 
-use hybrid_array::{
-	Array, ArraySize,
-	sizes::{U5, U6},
-};
-
-// needed so downstream crate users can specify illegal bytes
-pub use hybrid_array;
-
 /*
 	in ASCII/UTF-8:
 	0 is a "null" character
@@ -38,16 +30,16 @@ pub enum Error {
 }
 
 /// Fully conformant Base122 encoder. Can be customized to change behaviour / increase encoder efficency.
-pub struct Base122OriginalEncoder<'data, N: ArraySize> {
-	illegal_bytes: Array<u8, N>,
+pub struct Base122OriginalEncoder<'data, const N: usize> {
+	illegal_bytes: [u8; N],
 
 	data: &'data [u8],
 	current_byte: usize,
 	current_bit: u8,
 }
 
-impl<'data, N: ArraySize> Base122OriginalEncoder<'data, N> {
-	pub const fn new(data: &'data [u8], illegal_bytes: Array<u8, N>) -> Self {
+impl<'data, const N: usize> Base122OriginalEncoder<'data, N> {
+	pub const fn new(data: &'data [u8], illegal_bytes: [u8; N]) -> Self {
 		Base122OriginalEncoder {
 			illegal_bytes,
 			data,
@@ -93,6 +85,7 @@ impl<'data, N: ArraySize> Base122OriginalEncoder<'data, N> {
 		} else {
 			0
 		};
+
 		Ok(first_encoded_byte | second_encoded_byte)
 	}
 
@@ -171,18 +164,18 @@ impl<'data, N: ArraySize> Base122OriginalEncoder<'data, N> {
 /// A more concise version of [`Base122OriginalEncoder::encode`]. Uses Base122 illegal bytes.
 #[must_use]
 pub fn base122_encode(data: &[u8]) -> Vec<u8> {
-	Base122OriginalEncoder::new(data, Array::<u8, U6>(BASE122_ILLEGAL_BYTES)).encode()
+	Base122OriginalEncoder::new(data, BASE122_ILLEGAL_BYTES).encode()
 }
 
 /// A more concise version of [`Base122OriginalEncoder::encode_into`]. Uses Base123 illegal bytes.
 pub fn base123_encode_into(data: &[u8], writer: &mut impl Write) -> std::io::Result<()> {
-	Base122OriginalEncoder::new(data, Array::<u8, U5>(BASE123_ILLEGAL_BYTES)).encode_into(writer)
+	Base122OriginalEncoder::new(data, BASE123_ILLEGAL_BYTES).encode_into(writer)
 }
 
 /// A more concise version of [`Base122OriginalEncoder::encode`]. Uses Base123 illegal bytes.
 #[must_use]
 pub fn base123_encode(data: &[u8]) -> Vec<u8> {
-	Base122OriginalEncoder::new(data, Array::<u8, U5>(BASE123_ILLEGAL_BYTES)).encode()
+	Base122OriginalEncoder::new(data, BASE123_ILLEGAL_BYTES).encode()
 }
 
 mod tests {
