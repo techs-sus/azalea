@@ -9,10 +9,10 @@ const platformBinary =
 		? "./target/debug/azalea.exe"
 		: "./target/debug/azalea";
 
-await $`cargo build --bin azalea --features="base122 cli"`;
+await $`cargo build`;
 
 await Promise.all([
-	await ZstdInit(),
+	ZstdInit(),
 	$`${platformBinary} encode --input examples/*.rbxm --output examples`,
 	$`${platformBinary} generate-embeddable-script --input examples/*.rbxm --output examples`,
 ]);
@@ -35,7 +35,7 @@ function formatBytes(bytes: number, decimals = 2) {
 	const index = Math.floor(Math.log(bytes) / Math.log(1024));
 
 	return `${parseFloat(
-		(bytes / Math.pow(1024, index)).toFixed(nonNegativeDecimals)
+		(bytes / Math.pow(1024, index)).toFixed(nonNegativeDecimals),
 	)} ${sizes[index]}`;
 }
 
@@ -50,8 +50,8 @@ for await (const file of glob.scan()) {
 	promises.push(
 		Bun.write(
 			Bun.file(binZstFilePath),
-			ZstdStream.compress(await Bun.file(binFilePath).bytes(), 22, true)
-		)
+			ZstdStream.compress(await Bun.file(binFilePath).bytes(), 22, true),
+		),
 	);
 }
 
@@ -68,18 +68,18 @@ for await (const rbxmFilePath of glob.scan()) {
 	if (binZstFileSize > rbxmFileSize) {
 		console.log(
 			`${chalk.redBright("loss!")} ${chalk.green(
-				rbxmFilePath
+				rbxmFilePath,
 			)} ${prettyAzaleaText} is smaller than ${chalk.red()} ${prettyRobloxText} by ${formatBytes(
-				binZstFileSize - rbxmFileSize
-			)}`
+				binZstFileSize - rbxmFileSize,
+			)}`,
 		);
 	} else {
 		console.log(
 			`${chalk.cyan("win!")} ${chalk.green(
-				binZstFilePath
+				binZstFilePath,
 			)} ${prettyAzaleaText} is smaller than ${chalk.red(
-				rbxmFilePath
-			)} ${prettyRobloxText} by ${formatBytes(rbxmFileSize - binZstFileSize)}`
+				rbxmFilePath,
+			)} ${prettyRobloxText} by ${formatBytes(rbxmFileSize - binZstFileSize)}`,
 		);
 	}
 }
