@@ -12,7 +12,7 @@ do
 	local oldRequire = require
 
 	type Module = {
-		load: (script: ModuleScript) -> () -> unknown,
+		load: (script: ModuleScript, require: typeof(oldRequire)) -> () -> unknown,
 		cache: unknown,
 	}
 
@@ -28,6 +28,7 @@ do
 			type(source) == "nil",
 			"first argument (source) should be nil because the Novel technique inlines sources"
 		)
+
 		assert(
 			typeof(parent) == "Instance" or parent == nil,
 			"second optional argument (parent) must be of type Instance if provided"

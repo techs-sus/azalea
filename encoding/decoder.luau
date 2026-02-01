@@ -45,7 +45,10 @@ do
 
 	function NewModuleScript(source: string, parent: Instance?, ...)
 		assert(type(source) == "string", "first argument (source) must be of type string")
-		assert(typeof(parent) == "Instance" or parent == nil, "second optional argument (parent) must be of type Instance?")
+		assert(
+			typeof(parent) == "Instance" or parent == nil,
+			"second optional argument (parent) must be of type Instance?"
+		)
 
 		local args: { unknown } = { ... }
 		local fn = assert(loadstring(source), "failed compiling ModuleScript source")
@@ -315,11 +318,15 @@ local function decode(payloadBuffer: buffer)
 				buffer.readf32(payloadBuffer, loc + 8)
 
 			loc += 12
+
 			return Color3.new(r, g, b)
 		end,
 		[TYPE_ID.Color3uint8] = function()
 			local r, g, b =
-				buffer.readu8(payloadBuffer, loc), buffer.readu8(payloadBuffer, loc + 1), buffer.readu8(payloadBuffer, loc + 2)
+				buffer.readu8(payloadBuffer, loc),
+				buffer.readu8(payloadBuffer, loc + 1),
+				buffer.readu8(payloadBuffer, loc + 2)
+
 			loc += 3
 
 			return Color3.fromRGB(r, g, b)

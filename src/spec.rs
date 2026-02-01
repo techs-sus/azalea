@@ -330,6 +330,7 @@ decode_type_id! {
 			buffer.readf32(payloadBuffer, loc + 8)
 
 		loc += 12
+		
 		return Color3.new(r, g, b)
 	"#,
 	TypeId::Color3uint8 => r#"
@@ -337,6 +338,7 @@ decode_type_id! {
 			buffer.readu8(payloadBuffer, loc),
 			buffer.readu8(payloadBuffer, loc + 1),
 			buffer.readu8(payloadBuffer, loc + 2)
+
 		loc += 3
 
 		return Color3.fromRGB(r, g, b)

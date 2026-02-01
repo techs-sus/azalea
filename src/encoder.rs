@@ -564,9 +564,10 @@ fn write_variant(
 }
 
 /// Encodes an [`Instance`] alongside it's [`WeakDom`] with a referent map into a writer which implements [`Write`].
+///
+/// NOTE: This function does not encode the instance's children at all.
 fn encode_instance<'dom>(
 	instance: &'dom Instance,
-	weak_dom: &'dom WeakDom,
 	options: &mut Options<'dom>,
 	buffer: &mut impl Write,
 ) -> eyre::Result<()> {
@@ -605,8 +606,8 @@ fn encode_instance<'dom>(
 				.contains(Requirements::USE_NOVEL_INLINING)
 			&& let Variant::String(source) = value
 		{
-			// this won't panic because we write the instance ref before the loop and write_variant
-			// on a Ref which means the referent_map is always populated with a usize for the Ref
+			// this won't panic because we write the instance ref before the loop and calling write_variant
+			// on a Ref means the referent_map is always populated with a usize for the Ref
 			options
 				.module_script_sources
 				.insert(*referent_map.get(&instance.referent()).unwrap(), source);
@@ -630,14 +631,6 @@ fn encode_instance<'dom>(
 		write_variant(buffer, value, referent_map).wrap_err("failed writing property variant")?;
 	}
 
-	// Children
-	for child in instance.children() {
-		// children()'s contract states: All referents returned will be non-null and point to valid instances in the same `WeakDom`
-		let child_instance = weak_dom.get_by_ref(*child).unwrap();
-
-		encode_instance(child_instance, weak_dom, options, buffer)?;
-	}
-
 	Ok(())
 }
 
@@ -655,7 +648,15 @@ pub fn encode_dom_into_writer(
 		referent_map: HashMap::new(),
 	};
 
-	encode_instance(weak_dom.root(), weak_dom, &mut options, writer.by_ref())?;
+	// we use a non-recursive DFS to avoid stack overflows
+	let mut stack = vec![weak_dom.root().referent()];
+	while let Some(instance_referent) = stack.pop() {
+		// children()'s contract states: "All referents returned will be non-null and point to valid instances in the same `WeakDom`".
+		let instance = weak_dom.get_by_ref(instance_referent).unwrap();
+		encode_instance(instance, &mut options, writer.by_ref())?;
+
+		stack.extend(instance.children().into_iter().rev().copied());
+	}
 
 	// This should be here rather than encode_instance to avoid performance penalties
 	if options.known_needed_type_ids.contains(&TypeId::CFrame) {
