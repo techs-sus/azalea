@@ -67,12 +67,15 @@ Format details:
 - completely chunkless, roblox uses chunks
 - roblox uses lz4 and zstd, we only use zstd
 - can change at any time, not formalized or standardized
+- the format can be viewed in [ImHex](https://github.com/WerWolv/ImHex) via the pattern file located at [./azalea.hexpat](./azalea.hexpat)
+- - It doesn't automatically find the root Instance, but instead parses a sea of instances; the root Instance is any instance with no parent.
 
 Platform support:
 
 - Legacy is any compliant Luau implementation (NewScript and NewLocalScript but no NewModuleScript)
 - OpenSB is any compliant OpenSB implementation (Luau + NewModuleScript), usually <https://github.com/Open-SB/OpenSB>.
 - Studio is the environment in which plugins run or the command bar runs. It uses `Script.Source` (and other alike properties) to create `LuaSourceContainer`'s.
+- Novel has the same requirements as Legacy
 
 Output of `bun run compareExamples` (format efficency, +'s added for color):
 
