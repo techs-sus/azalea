@@ -573,8 +573,7 @@ fn encode_instance<'dom>(
 ) -> eyre::Result<()> {
 	let referent_map = &mut options.referent_map;
 
-	// TODO: Just make this a raw Varstring, don't wrap in Variant
-	write_string_variant(buffer, &instance.name)?;
+	write_varstring(buffer, instance.name.as_bytes())?;
 
 	write_nullstring(buffer, instance.class.as_bytes())
 		.wrap_err("failed writing nullstring for instance ClassName")?;

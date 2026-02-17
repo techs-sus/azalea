@@ -45,10 +45,7 @@ do
 
 	function NewModuleScript(source: string, parent: Instance?, ...)
 		assert(type(source) == "string", "first argument (source) must be of type string")
-		assert(
-			typeof(parent) == "Instance" or parent == nil,
-			"second optional argument (parent) must be of type Instance?"
-		)
+		assert(typeof(parent) == "Instance" or parent == nil, "second optional argument (parent) must be of type Instance?")
 
 		local args: { unknown } = { ... }
 		local fn = assert(loadstring(source), "failed compiling ModuleScript source")
@@ -323,9 +320,7 @@ local function decode(payloadBuffer: buffer)
 		end,
 		[TYPE_ID.Color3uint8] = function()
 			local r, g, b =
-				buffer.readu8(payloadBuffer, loc),
-				buffer.readu8(payloadBuffer, loc + 1),
-				buffer.readu8(payloadBuffer, loc + 2)
+				buffer.readu8(payloadBuffer, loc), buffer.readu8(payloadBuffer, loc + 1), buffer.readu8(payloadBuffer, loc + 2)
 
 			loc += 3
 
@@ -636,7 +631,7 @@ local function decode(payloadBuffer: buffer)
 	local latePropertiesMap: { [Ref]: { [string]: { variant: Ref, isContentObject: boolean } } } = {}
 
 	local function decodeInstance()
-		local name: string = nextVariant({ TYPE_ID.String })
+		local name: string = VARIANT_DECODER[TYPE_ID.String]()
 		local className: string = nextNullstring()
 		local instanceReferent: Ref = nextVariant({ TYPE_ID.Ref })
 		local parentReferent: Ref? = nextVariant({ TYPE_ID.Ref, TYPE_ID.None })
