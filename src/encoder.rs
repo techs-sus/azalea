@@ -658,8 +658,17 @@ pub fn encode_dom_into_writer(
 	}
 
 	// This should be here rather than encode_instance to avoid performance penalties
+	// as setting the same property in a loop is usually not a good idea
 	if options.known_needed_type_ids.contains(&TypeId::CFrame) {
 		options.generation_requirements |= Requirements::CFRAME_LOOKUP_TABLE;
+	}
+
+	// same reason as above
+	if options
+		.known_needed_type_ids
+		.contains(&TypeId::ContentObject)
+	{
+		options.generation_requirements |= Requirements::CONTENT_OBJECT_SUPPORT;
 	}
 
 	Ok(options)

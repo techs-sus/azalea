@@ -69,6 +69,13 @@ bitflags::bitflags! {
 		///
 		/// This is an EXPLICIT requirement.
 		const RETURN_DECODE = 512;
+
+		/// Enable this to properly decode instances with Content property values that reference other objects (also known as referents/instances).
+		/// 
+		/// Related to `Content.fromObject(...)` decoding support.
+		///
+		/// This is an IMPLICIT requirement.
+		const CONTENT_OBJECT_SUPPORT = 1024;
 	}
 }
 

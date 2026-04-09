@@ -628,6 +628,7 @@ local function decode(payloadBuffer: buffer)
 
 	-- late properties must be applied after the entire tree is decoded
 	-- index signature: latePropertyMap[referent][propertyName] = propertyValue
+
 	local latePropertiesMap: { [Ref]: { [string]: { variant: Ref, isContentObject: boolean } } } = {}
 
 	local function decodeInstance()
@@ -644,8 +645,10 @@ local function decode(payloadBuffer: buffer)
 			local propertyName = nextNullstring()
 
 			local peekedTypeId = buffer.readu8(payloadBuffer, loc)
+
 			local propertyValueIsContentObject = peekedTypeId == TYPE_ID.ContentObject
 			local propertyValueIsReferent = peekedTypeId == TYPE_ID.Ref or propertyValueIsContentObject
+
 			if propertyValueIsReferent then
 				if not latePropertiesMap[instanceReferent] then
 					latePropertiesMap[instanceReferent] = {}

@@ -133,7 +133,11 @@ local function decode(payloadBuffer: buffer)
 
 	-- late properties must be applied after the entire tree is decoded
 	-- index signature: latePropertyMap[referent][propertyName] = propertyValue
+	{% if requirements.contains(Requirements::CONTENT_OBJECT_SUPPORT) %}
 	local latePropertiesMap: { [Ref]: { [string]: { variant: Ref, isContentObject: boolean } } } = {}
+	{% else %}
+	local latePropertiesMap: { [Ref]: { [string]: Ref } } = {}
+	{% endif %}
 
 	local function decodeInstance()
 		local name: string = VARIANT_DECODER[TYPE_ID.String]()
@@ -149,14 +153,22 @@ local function decode(payloadBuffer: buffer)
 			local propertyName = nextNullstring()
 
 			local peekedTypeId = buffer.readu8(payloadBuffer, loc)
+			{% if requirements.contains(Requirements::CONTENT_OBJECT_SUPPORT) %}
 			local propertyValueIsContentObject = peekedTypeId == TYPE_ID.ContentObject
 			local propertyValueIsReferent = peekedTypeId == TYPE_ID.Ref or propertyValueIsContentObject
+			{% else %}
+			local propertyValueIsReferent = peekedTypeId == TYPE_ID.Ref
+			{% endif %}
 			if propertyValueIsReferent then
 				if not latePropertiesMap[instanceReferent] then
 					latePropertiesMap[instanceReferent] = {}
 				end
 
+			{% if requirements.contains(Requirements::CONTENT_OBJECT_SUPPORT) %}
 				latePropertiesMap[instanceReferent][propertyName] = { variant = nextVariant({ TYPE_ID.Ref, TYPE_ID.ContentObject }), isContentObject = propertyValueIsContentObject }
+			{% else %}
+				latePropertiesMap[instanceReferent][propertyName] = nextVariant({ TYPE_ID.Ref })
+			{% endif %}
 			else
 				propertiesMap[propertyName] = nextVariant()
 			end
@@ -230,7 +242,11 @@ local function decode(payloadBuffer: buffer)
 		-- late property handling (referent handling)
 		for propertyName, propertyValue in pairs(propertyMap) do
 			xpcall(function()
+				{% if requirements.contains(Requirements::CONTENT_OBJECT_SUPPORT) %}
 				referentTree[referent][propertyName] = if propertyValue.isContentObject then Content.fromObject(referentTree[propertyValue.variant]) else referentTree[propertyValue.variant]
+				{% else %}
+				referentTree[referent][propertyName] = referentTree[propertyValue]
+				{% endif %}
 			end, function(error)
 				warn(
 					`failed setting late property {propertyName} on referent {referent} with value {propertyValue}; got error "{error}"`
