@@ -557,7 +557,9 @@ fn write_variant(
 			referent_map,
 		)?,
 
-		_ => eyre::bail!("unimplemented VariantType: {:#?}", variant.ty()),
+		_ => {
+			eyre::bail!("unimplemented VariantType: {:#?}", variant.ty());
+		}
 	}
 
 	Ok(())

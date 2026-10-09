@@ -146,7 +146,9 @@ fn read_dom_from_path<T: AsRef<Path>>(path: T) -> eyre::Result<WeakDom> {
 	Ok(match extension {
 		"rbxm" => rbx_binary::from_reader(file)?,
 		"rbxmx" => rbx_xml::from_reader_default(file)?,
-		_ => bail!("invalid file extension"),
+		_ => {
+			bail!("invalid file extension");
+		}
 	})
 }
 
@@ -231,7 +233,9 @@ fn write_to_luau_file<T: AsRef<Path>>(
 			std::fs::write(output.as_ref(), source).wrap_err("failed writing minified luau output")?;
 			minify_with_darklua(output.as_ref().to_path_buf()).map_err(|e| eyre!(e.to_string()))?;
 		}
-		(true, true) => bail!("formatting and minifying at the same time is not supported"),
+		(true, true) => {
+			bail!("formatting and minifying at the same time is not supported");
+		}
 		(false, false) => std::fs::write(&output, source).context(format!(
 			"failed writing luau source file to output path {}",
 			output.as_ref().display()
